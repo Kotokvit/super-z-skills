@@ -1,0 +1,64 @@
+{
+  "name": "poler-psi",
+  "version": "1.0.0",
+  "description": "POLER[Ψ] — Quantum-Chemical Residual Rendering for LLMs",
+  "category": "tooling-meta",
+  "priority": 80,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "skill",
+      "скилл",
+      "version",
+      "версия",
+      "task review",
+      "poler"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "poler-psi",
+    "tooling-meta",
+    "skill",
+    "скилл",
+    "version",
+    "версия",
+    "task review"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

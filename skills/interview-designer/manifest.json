@@ -1,0 +1,73 @@
+{
+  "name": "interview-designer",
+  "version": "1.0.0",
+  "description": "Analyze resumes and design interview strategies using evidence-based methodology. Transforms interview prep from \"read resume → ask questions\" into \"define standard → forensic evidence → future simulation\". Combines Geoff Smart's Topgrading, Lou Adler's performance-based hiring, and Daniel Kahneman's bias control. Use when preparing for interviews, creating structured interview guides, or designing questions to validate candidate competencies.",
+  "category": "education",
+  "priority": 50,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "markdown",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".gif",
+      ".webp"
+    ],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "gaokao",
+      "高考",
+      "quiz",
+      "квиз",
+      "study",
+      "учеб",
+      "interview",
+      "собеседование",
+      "question"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "interview-designer",
+    "education",
+    "gaokao",
+    "高考",
+    "quiz",
+    "квиз",
+    "study"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

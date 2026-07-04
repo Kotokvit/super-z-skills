@@ -1,0 +1,66 @@
+{
+  "name": "_orchestrator",
+  "version": "1.0.0",
+  "description": "Skill pipeline orchestrator: SkillRegistry + Planner + Scheduler + Executor + Validator + Aggregator. Reads manifest.json from all skills, builds DAG, runs sequentially or in parallel, validates outputs against JSON Schema, aggregates results.",
+  "category": "meta",
+  "priority": 100,
+  "language": "python",
+  "cost": {
+    "cpu": "low",
+    "ram": "<128MB",
+    "time": "1ms per skill lookup; execution time = sum of skill times",
+    "gpu": "none",
+    "network": "false",
+    "llm_calls": "0 (uses rules); optional LLM planner can be added"
+  },
+  "triggers": {
+    "content_contains": ["orchestrate", "pipeline", "планировщик",
+                         "build pipeline", "skill chain"]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {"type": "string", "description": "User query in natural language"},
+        "input_data": {"type": "object",
+                       "description": "Input data for the first skill in the pipeline"},
+        "parallel": {"type": "boolean", "default": true},
+        "verbose": {"type": "boolean", "default": false}
+      },
+      "required": ["query"]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {"type": "string", "enum": ["success", "error", "partial"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "data": {
+          "type": "object",
+          "properties": {
+            "plan": {"type": "array", "items": {"type": "string"}},
+            "results": {"type": "object"},
+            "final": {"type": ["object", "string", "null"]}
+          }
+        }
+      }
+    }
+  },
+  "requires": {
+    "python": ">=3.8",
+    "python_packages": []
+  },
+  "dependencies": [],
+  "memory": {"save": ["plan", "results"], "load": []},
+  "self_test": {"doctor_script": "doctor.py"},
+  "validator": {"script": "validator.py", "min_confidence": 0.3},
+  "entry_points": {
+    "orchestrate": "scripts/orchestrator.py",
+    "registry": "scripts/registry.py",
+    "planner": "scripts/planner.py",
+    "executor": "scripts/executor.py"
+  },
+  "tags": ["orchestrator", "planner", "pipeline", "dag", "registry",
+           "scheduler", "aggregator"]
+}

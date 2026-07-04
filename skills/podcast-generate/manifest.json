@@ -1,0 +1,75 @@
+{
+  "name": "podcast-generate",
+  "version": "1.0.0",
+  "description": "Generate podcast episodes from user-provided content or by searching the web for specified topics. If user uploads a text file/article, creates a dual-host dialogue podcast (or single-host upon request). If no content is provided, searches the web for information about the user-specified topic and generates a podcast. Duration scales with content size (3-20 minutes, ~240 chars/min). Uses z-ai-web-dev-sdk for LLM script generation and TTS audio synthesis. Outputs both a podcast script (Markdown) and a complete audio file (WAV).",
+  "category": "creative-media",
+  "priority": 65,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "typescript",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [
+      ".mp4",
+      ".webm",
+      ".mp3",
+      ".wav"
+    ],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "image",
+      "изображ",
+      "video",
+      "видео",
+      "podcast",
+      "подкаст",
+      "storyboard",
+      "сценарий",
+      "design",
+      "дизайн",
+      "UI",
+      "UX"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "podcast-generate",
+    "creative-media",
+    "image",
+    "изображ",
+    "video",
+    "видео",
+    "podcast"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

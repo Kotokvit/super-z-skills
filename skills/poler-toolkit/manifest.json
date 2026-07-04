@@ -1,0 +1,298 @@
+{
+  "name": "poler-toolkit",
+  "version": "6.1.0",
+  "description": "POLER v6 — standalone text-data analysis instrument. Unified ingest (PDF/URL/EPUB/code), TF-IDF epsilon scoring, theme detection, keyword clustering, grep-killer, diff. Zero external deps, Python 3.8+ stdlib only.",
+  "category": "text-analysis",
+  "priority": 80,
+  "author": "POLER[n] Studio + Super Z",
+  "language": "python",
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "0.1-2s per doc (local); +1-3s if --llm",
+    "gpu": "none",
+    "network": "optional (only for URL inputs or --llm)",
+    "llm_calls": "0 by default; 1 with --llm"
+  },
+  "triggers": {
+    "file_extensions": [
+      ".pdf",
+      ".txt",
+      ".md",
+      ".html",
+      ".htm",
+      ".epub",
+      ".zip",
+      ".tar",
+      ".gz",
+      ".tgz",
+      ".py",
+      ".rs",
+      ".c",
+      ".cpp",
+      ".js",
+      ".ts",
+      ".java",
+      ".go",
+      ".rb",
+      ".json",
+      ".csv",
+      ".tsv",
+      ".log",
+      ".tex"
+    ],
+    "url_schemes": [
+      "http",
+      "https"
+    ],
+    "mime_types": [
+      "application/pdf",
+      "text/plain",
+      "text/html",
+      "text/markdown",
+      "application/epub+zip",
+      "application/zip",
+      "application/gzip",
+      "application/x-tar",
+      "text/x-python",
+      "text/x-csrc"
+    ],
+    "content_contains": [
+      "анализ",
+      "текст",
+      "тема",
+      "кластер",
+      "analyze",
+      "theme",
+      "cluster",
+      "tf-idf",
+      "grep",
+      "diff",
+      "ingest",
+      "extract"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "File path, URL (http/https), or '-' for stdin"
+        },
+        "llm": {
+          "type": "boolean",
+          "default": false,
+          "description": "Add 1 LLM call (z-ai chat) for semantic topic"
+        },
+        "max_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 50
+        },
+        "no_keywords": {
+          "type": "boolean",
+          "default": false
+        },
+        "no_clusters": {
+          "type": "boolean",
+          "default": false
+        },
+        "no_text": {
+          "type": "boolean",
+          "default": false,
+          "description": "Omit 'text' field from output (smaller payload)"
+        }
+      },
+      "required": [
+        "input"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "meta": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string"
+                },
+                "source_type": {
+                  "type": "string",
+                  "enum": [
+                    "file",
+                    "url",
+                    "stdin"
+                  ]
+                },
+                "format": {
+                  "type": "string"
+                },
+                "ocr_used": {
+                  "type": "boolean"
+                },
+                "chars": {
+                  "type": "integer"
+                },
+                "lang": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "is_code": {
+                  "type": "boolean"
+                },
+                "n_chunks": {
+                  "type": "integer"
+                },
+                "total_elapsed_sec": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "source",
+                "source_type",
+                "format",
+                "chars"
+              ]
+            },
+            "theme": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "scores": {
+                  "type": "object"
+                },
+                "method": {
+                  "type": "string"
+                },
+                "semantic": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "semantic_confidence": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "semantic_alt_topics": {
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "scores",
+                "method"
+              ]
+            },
+            "keywords": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "clusters": {
+              "type": "array"
+            }
+          },
+          "required": [
+            "meta",
+            "theme"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "confidence",
+        "data"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.8",
+    "binaries": [],
+    "python_packages": []
+  },
+  "dependencies": [
+    "pdf-ocr"
+  ],
+  "memory": {
+    "save": [
+      "text",
+      "theme"
+    ],
+    "load": [],
+    "notes": "OCR results cached by pdf-ocr separately; ingest does not re-OCR same file in same session"
+  },
+  "self_test": {
+    "doctor_script": "doctor.py",
+    "smoke_test": "tests/smoke_test.py",
+    "sample_input": "examples/sample.txt"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.3,
+    "required_fields": [
+      "status",
+      "confidence",
+      "data"
+    ]
+  },
+  "entry_points": {
+    "ingest": "scripts/ingest.py",
+    "analyze": "scripts/poler_v6.py",
+    "lens_query": "scripts/lens_query.py"
+  },
+  "tags": [
+    "text",
+    "grep",
+    "search",
+    "epub",
+    "archive",
+    "tf-idf",
+    "analyze",
+    "diff",
+    "poler",
+    "ingest",
+    "theme",
+    "cluster",
+    "poler-toolkit"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

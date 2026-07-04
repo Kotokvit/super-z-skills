@@ -1,0 +1,99 @@
+{
+  "name": "site-context-loader",
+  "version": "1.0.0",
+  "description": "Online conversation-triggered loader of geographic context. Detects toponyms (place names) or geo-coordinates in user message, queries OpenStreetMap Nominatim API for location metadata (lat/lon, country, region, type), returns a Pattern 1 source-grounded brief with claims+citations+coverage. Designed to run in background BEFORE the agent answers — gives the agent 'assumptions' about which place the user means without the agent having to ask.",
+  "category": "online-context",
+  "priority": 69,
+  "author": "Online Layer build, 2026-07-04",
+  "language": "python",
+
+  "cost": {
+    "cpu": "low",
+    "ram": "<64MB",
+    "time": "0.5-3s per toponym (Nominatim API)",
+    "gpu": "none",
+    "network": "required (OpenStreetMap Nominatim API)",
+    "llm_calls": 0
+  },
+
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "возле", "около", "под", "вблизи", "рядом с", "under", "near",
+      "город", "city", "местность", "location", "где", "where"
+    ]
+  },
+
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "Toponym (place name), geo-coordinates 'lat,lon', or '-' to read message from stdin"
+        },
+        "json": {"type": "boolean", "default": true},
+        "lang_hint": {
+          "type": "string", "default": "auto",
+          "description": "Language hint for toponym disambiguation (e.g. 'ru', 'en')"
+        },
+        "transient": {"type": "boolean", "default": false}
+      },
+      "required": ["input"]
+    }
+  },
+
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {"type": "string", "enum": ["success", "error", "skipped"]},
+        "confidence": {"type": "number"},
+        "data": {
+          "type": ["object", "null"],
+          "properties": {
+            "brief": {"type": "string"},
+            "claims": {"type": "array"},
+            "coverage": {"type": "object"},
+            "toponyms": {"type": "array"},
+            "assumption_doc": {"type": "string"}
+          }
+        },
+        "error": {"type": ["string", "null"]}
+      },
+      "required": ["status", "confidence"]
+    }
+  },
+
+  "requires": {
+    "python": ">=3.8",
+    "binaries": [],
+    "python_packages": []
+  },
+
+  "dependencies": [],
+
+  "memory": {
+    "save": ["toponyms"],
+    "load": [],
+    "notes": "Nominatim has 1 req/sec rate limit — cache aggressively"
+  },
+
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.3,
+    "required_fields": ["status", "confidence"]
+  },
+
+  "entry_points": {
+    "ingest": "scripts/site_context_loader.py"
+  },
+
+  "tags": ["toponym", "geo", "location", "osm", "nominatim", "online", "geocode", "assumption"]
+}

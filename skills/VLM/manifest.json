@@ -1,0 +1,127 @@
+{
+  "name": "VLM",
+  "version": "1.0.0",
+  "description": "Vision-language model chat via z-ai-web-dev-sdk. Image analysis, multimodal conversations, visual content description. Supports image URLs and base64-encoded images.",
+  "category": "ai-media",
+  "priority": 65,
+  "language": "javascript",
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "2-15s per call",
+    "gpu": "none",
+    "network": "required",
+    "llm_calls": 1
+  },
+  "triggers": {
+    "file_extensions": [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".webp",
+      ".gif"
+    ],
+    "mime_types": [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/gif"
+    ],
+    "content_contains": [
+      "image analysis",
+      "vision",
+      "describe image",
+      "vlm",
+      "multimodal",
+      "analyze picture"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "string",
+          "description": "Image URL or base64-encoded data URI"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "messages": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "image"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "node": ">=18",
+    "npm_packages": [
+      "z-ai-web-dev-sdk"
+    ]
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [],
+    "load": []
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.5
+  },
+  "entry_points": {
+    "analyze": "scripts/vlm.ts"
+  },
+  "tags": [
+    "vlm",
+    "vision",
+    "image",
+    "multimodal",
+    "z-ai",
+    "VLM"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

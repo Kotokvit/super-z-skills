@@ -1,0 +1,107 @@
+{
+  "name": "contentanalysis",
+  "version": "1.0.0",
+  "description": "Deep content analysis — semantic topic detection, multi-document comparison, content strategy recommendations. Alternative to poler-toolkit when semantic depth matters more than grep speed.",
+  "category": "text-analysis",
+  "priority": 60,
+  "language": "python",
+  "cost": {
+    "cpu": "medium",
+    "ram": "<512MB",
+    "time": "5-30s per document",
+    "gpu": "none",
+    "network": "optional",
+    "llm_calls": "0-2"
+  },
+  "triggers": {
+    "content_contains": [
+      "content analysis",
+      "семантика",
+      "semantic",
+      "content strategy",
+      "контент-анализ",
+      "analyze content",
+      "анализ контент",
+      "content audit"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string"
+        },
+        "depth": {
+          "type": "string",
+          "enum": [
+            "shallow",
+            "medium",
+            "deep"
+          ],
+          "default": "medium"
+        }
+      },
+      "required": [
+        "input"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.10",
+    "python_packages": []
+  },
+  "dependencies": [
+    "poler-toolkit"
+  ],
+  "memory": {
+    "save": [],
+    "load": []
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.5
+  },
+  "entry_points": {
+    "default": "scripts/run.py"
+  },
+  "_notes": "This is a prompt/workflow-based skill, not a script-based one. The agent invokes it via Skill(command='contentanalysis') and follows the SKILL.md instructions.",
+  "tags": [
+    "content",
+    "analysis",
+    "semantic",
+    "strategy",
+    "contentanalysis"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

@@ -1,0 +1,76 @@
+{
+  "name": "visual-design-foundations",
+  "version": "1.0.0",
+  "description": "Apply typography, color theory, spacing systems, and iconography principles to create cohesive visual designs. Use when establishing design tokens, building style guides, or improving visual hierarchy and consistency.",
+  "category": "creative-media",
+  "priority": 50,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "markdown",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".gif",
+      ".webp"
+    ],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "image",
+      "изображ",
+      "video",
+      "видео",
+      "podcast",
+      "подкаст",
+      "storyboard",
+      "сценарий",
+      "design",
+      "дизайн",
+      "UI",
+      "UX"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "visual-design-foundations",
+    "creative-media",
+    "image",
+    "изображ",
+    "video",
+    "видео",
+    "podcast"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

@@ -1,0 +1,38 @@
+# Super-Z Skill Orchestrator — Python dependencies
+# Installed by bootstrap.sh
+
+# ─── Core runtime ────────────────────────────────────────────────────────
+requests>=2.31.0            # HTTP for many skills
+python-dotenv>=1.0.0        # .env loading
+pyyaml>=6.0                 # YAML frontmatter parsing in manifests
+jsonschema>=4.20.0          # Output validation in executor.py
+
+# ─── Russian morphology (site-context-loader, content-analysis) ──────────
+pymorphy3>=2.0.0            # Russian lemmatizer (replaces pymorphy2)
+
+# ─── Media triage (media-triage skill) ───────────────────────────────────
+yt-dlp>=2024.10.07          # YouTube download + transcript extraction
+
+# ─── Web scraping (agent-browser, site-context-loader) ───────────────────
+beautifulsoup4>=4.12.0      # HTML parsing
+lxml>=5.0.0                 # Fast XML/HTML parser
+markdown>=3.5               # Markdown → HTML for blog-writer etc.
+
+# ─── Document generation (docx/pdf/xlsx/pptx skills) ─────────────────────
+python-docx>=1.1.0          # .docx generation
+reportlab>=4.0.0            # .pdf generation
+openpyxl>=3.1.0             # .xlsx generation
+python-pptx>=0.6.23         # .pptx generation
+
+# ─── Charts & visualization (charts skill) ───────────────────────────────
+matplotlib>=3.8.0           # PNG chart rendering
+Pillow>=10.0.0              # Image manipulation
+seaborn>=0.13.0             # Statistical charts (optional)
+
+# ─── Async / concurrency ─────────────────────────────────────────────────
+aiohttp>=3.9.0              # Async HTTP (for parallel skill exec)
+aiofiles>=23.2.0            # Async file I/O
+
+# ─── Optional / future ───────────────────────────────────────────────────
+# playwright>=1.40.0         # Browser automation (agent-browser fallback)
+# sympy>=1.12                # Math rendering for academic PDFs

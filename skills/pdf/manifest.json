@@ -1,0 +1,150 @@
+{
+  "name": "pdf",
+  "version": "1.0.0",
+  "description": "Professional PDF toolkit with 4 production lines: Report (ReportLab), Creative (JSON Blueprint → Playwright), Academic (LaTeX/Tectonic), Process (manipulate existing PDFs).",
+  "category": "document-production",
+  "priority": 78,
+  "language": "python",
+  "cost": {
+    "cpu": "medium",
+    "ram": "<1GB",
+    "time": "2-60s per document",
+    "gpu": "none",
+    "network": "false (except LaTeX package downloads first time)",
+    "llm_calls": 0
+  },
+  "triggers": {
+    "file_extensions": [
+      ".pdf",
+      ".tex"
+    ],
+    "mime_types": [
+      "application/pdf"
+    ],
+    "content_contains": [
+      "pdf",
+      "report",
+      "отчет",
+      "poster",
+      "infographic",
+      "academic",
+      "paper",
+      "thesis",
+      "resume",
+      "CV"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": [
+            "string",
+            "object"
+          ]
+        },
+        "line": {
+          "type": "string",
+          "enum": [
+            "report",
+            "creative",
+            "academic",
+            "process"
+          ],
+          "default": "report"
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "template": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "size_bytes": {
+              "type": "integer"
+            },
+            "pages": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.10",
+    "binaries": [
+      "tectonic"
+    ],
+    "python_packages": [
+      "reportlab",
+      "playwright",
+      "Pillow"
+    ]
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [
+      "file"
+    ],
+    "load": []
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.5,
+    "required_fields": [
+      "status",
+      "data.file"
+    ]
+  },
+  "entry_points": {
+    "build": "scripts/pdf.py"
+  },
+  "tags": [
+    "pdf",
+    "reportlab",
+    "latex",
+    "tectonic",
+    "playwright",
+    "report",
+    "academic",
+    "poster"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

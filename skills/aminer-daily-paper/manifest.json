@@ -1,0 +1,69 @@
+{
+  "name": "aminer-daily-paper",
+  "version": "1.0.0",
+  "description": "Get personalized academic paper recommendations. Activate whenever the user asks for paper recommendations — explicit command (/aminer-dp) or natural language (e.g. 'recommend me papers on RAG', 'suggest recent papers on multimodal agents'). Workflow: extract topics / author / aminer_author_id from the input, invoke scripts/recommend.py, return results as Markdown.",
+  "category": "academic-research",
+  "priority": 72,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [
+      "http",
+      "https"
+    ],
+    "mime_types": [],
+    "content_contains": [
+      "academic",
+      "paper",
+      "论文",
+      "论文",
+      "исследовани",
+      "paper search",
+      "literature",
+      "literatura"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "aminer-daily-paper",
+    "academic-research",
+    "academic",
+    "paper",
+    "论文",
+    "论文",
+    "исследовани"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

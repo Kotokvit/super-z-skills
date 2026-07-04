@@ -1,0 +1,121 @@
+{
+  "name": "coding-agent",
+  "version": "1.0.0",
+  "description": "Docs-only skill. Methodology documents for coding agent execution. No executable script.",
+  "category": "text-analysis",
+  "priority": 70,
+  "author": "Auto-registered by register_unregistered_skills.py, 2026-07-04",
+  "language": "typescript",
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "1-10s typical",
+    "gpu": "none",
+    "network": "sometimes (depends on skill)",
+    "llm_calls": "0-1 depending on skill"
+  },
+  "triggers": {
+    "file_extensions": [
+      ".py",
+      ".ts",
+      ".js",
+      ".rs",
+      ".go",
+      ".java"
+    ],
+    "content_contains": [
+      "напиши код",
+      "write code",
+      "implement",
+      "refactor",
+      "fix bug",
+      "code",
+      "код",
+      "программ",
+      "function",
+      "функция",
+      "debug",
+      "дебаг"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "Input text, URL, file path, or '-' for stdin"
+        }
+      },
+      "required": [
+        "input"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "data": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.8",
+    "binaries": [],
+    "python_packages": []
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [],
+    "load": [],
+    "notes": "Auto-registered — refine manifest if needed"
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.3,
+    "required_fields": [
+      "status"
+    ]
+  },
+  "entry_points": {
+    "default": "scripts/run.py"
+  },
+  "tags": [
+    "code",
+    "agent",
+    "implement",
+    "refactor",
+    "develop",
+    "coding-agent"
+  ],
+  "docs_only": false,
+  "entry_point": "scripts/run.py"
+}

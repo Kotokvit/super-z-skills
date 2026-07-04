@@ -1,0 +1,75 @@
+{
+  "name": "seo-content-writer",
+  "version": "1.0.0",
+  "description": "Use when the user asks to \"write SEO content\", \"create a blog post\", \"write an article\", \"content writing\", \"draft optimized content\", \"write me an article\", \"create a blog post about\", \"help me write SEO content\", or \"draft content for\". Creates high-quality, SEO-optimized content that ranks in search engines. Applies on-page SEO best practices, keyword optimization, and content structure for maximum visibility and engagement. For AI citation optimization, see geo-content-optimizer. For updating existing content, see content-refresher.",
+  "category": "content-creation",
+  "priority": 70,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "blog",
+      "пост",
+      "article",
+      "статья",
+      "SEO",
+      "content",
+      "контент",
+      "marketing",
+      "маркетинг"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "seo-content-writer",
+    "content-creation",
+    "blog",
+    "пост",
+    "article",
+    "статья",
+    "SEO"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  },
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "5-15s per query (single LLM call)",
+    "gpu": "none",
+    "network": "required (z-ai chat API)",
+    "llm_calls": 1
+  }
+}

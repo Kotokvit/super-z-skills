@@ -1,0 +1,82 @@
+{
+  "name": "storyboard-manager",
+  "version": "1.0.0",
+  "description": "Assist writers with story planning, character development, plot structuring, chapter writing, timeline tracking, and consistency checking. Use this skill when working with creative writing projects organized in folders containing characters, chapters, story planning documents, and summaries. Trigger this skill for tasks like \"Help me develop this character,\" \"Write the next chapter,\" \"Check consistency across my story,\" or \"Track the timeline of events.",
+  "category": "creative-media",
+  "priority": 65,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "scripts/consistency_checker.py",
+  "triggers": {
+    "file_extensions": [
+      ".md",
+      ".txt",
+      ".markdown"
+    ],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "image",
+      "изображ",
+      "video",
+      "видео",
+      "podcast",
+      "подкаст",
+      "storyboard",
+      "сценарий",
+      "design",
+      "дизайн",
+      "UI",
+      "UX"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "storyboard-manager",
+    "creative-media",
+    "image",
+    "изображ",
+    "video",
+    "видео",
+    "podcast"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  },
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "5-15s per query (single LLM call)",
+    "gpu": "none",
+    "network": "required (z-ai chat API)",
+    "llm_calls": 1
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "name": "task-review",
+  "version": "1.0.0",
+  "description": "当用户指令为高复杂度任务时触发，用于将刚完成的任务路径保存为可复用技能，生成相关的SKILL.md文档。",
+  "category": "tooling-meta",
+  "priority": 50,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "markdown",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "skill",
+      "скилл",
+      "version",
+      "версия",
+      "task review",
+      "poler"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "task-review",
+    "tooling-meta",
+    "skill",
+    "скилл",
+    "version",
+    "версия",
+    "task review"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

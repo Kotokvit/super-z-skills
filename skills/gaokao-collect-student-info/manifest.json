@@ -1,0 +1,67 @@
+{
+  "name": "gaokao-collect-student-info",
+  "version": "1.0.0",
+  "description": ">-",
+  "category": "education",
+  "priority": 50,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "markdown",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "gaokao",
+      "高考",
+      "quiz",
+      "квиз",
+      "study",
+      "учеб",
+      "interview",
+      "собеседование",
+      "question"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "gaokao-collect-student-info",
+    "education",
+    "gaokao",
+    "高考",
+    "quiz",
+    "квиз",
+    "study"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

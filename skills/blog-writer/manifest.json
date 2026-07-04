@@ -1,0 +1,79 @@
+{
+  "name": "blog-writer",
+  "version": "1.0.0",
+  "description": "This skill should be used when writing blog posts, articles, or long-form content in the writer's distinctive writing style. It produces authentic, opinionated content that matches the writer's voice—direct, conversational, and grounded in personal experience. The skill handles the complete workflow from research review through Notion publication. Use this skill for drafting blog posts, thought leadership pieces, or any writing meant to reflect the writer's perspective on AI, productivity, sales, marketing, or technology topics.",
+  "category": "content-creation",
+  "priority": 70,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "manage_examples.py",
+  "triggers": {
+    "file_extensions": [
+      ".md",
+      ".txt",
+      ".markdown"
+    ],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "blog",
+      "пост",
+      "article",
+      "статья",
+      "SEO",
+      "content",
+      "контент",
+      "marketing",
+      "маркетинг"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "blog-writer",
+    "content-creation",
+    "blog",
+    "пост",
+    "article",
+    "статья",
+    "SEO"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  },
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "5-15s per query (single LLM call)",
+    "gpu": "none",
+    "network": "required (z-ai chat API)",
+    "llm_calls": 1
+  }
+}

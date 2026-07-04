@@ -1,0 +1,75 @@
+{
+  "name": "interview-prep",
+  "version": "1.0.0",
+  "description": "帮用户准备面试。基于目标 JD、公司、岗位方向，生成\"高频面试题 + 参考回答 + 行为面 / 技术面 / Case 面分类题库\"，并产出可打印的『面试备战手册』。当用户说\"帮我准备面试\"\"明天有面试 / 后天面试\"\"面试题\"\"面经\"\"模拟面试\"\"我要面 X 公司 Y 岗位\"\"帮我准备 STAR 故事\"\"怎么回答这道面试题\"\"自我介绍 / 离职原因 / 优缺点 怎么答\"，必须触发本 skill。请勿用本 skill 改简历（去 jd-resume-tailor / resume-builder）或推荐方向（去 job-intent-tracker）。",
+  "category": "education",
+  "priority": 65,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "scripts/star_story_builder.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "gaokao",
+      "高考",
+      "quiz",
+      "квиз",
+      "study",
+      "учеб",
+      "interview",
+      "собеседование",
+      "question"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "interview-prep",
+    "education",
+    "gaokao",
+    "高考",
+    "quiz",
+    "квиз",
+    "study"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  },
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "5-15s per query (single LLM call)",
+    "gpu": "none",
+    "network": "required (z-ai chat API)",
+    "llm_calls": 1
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "poler-psi",
+  "version": "6.1.0-g0",
+  "description": "POLER[Ψ] — Quantum-chemical residual rendering engine for LLMs. SCF + DIIS + McWeeny Π_Λ + POLER Kick over Qwen 0.5B weight space. Includes Phase G0 dimensionality fix (896×896 → 128×128 K-subspace, 1552× speedup).",
+  "tags": ["poler-psi", "scf", "diis", "quantum-chemistry", "llm", "qwen", "residual-rendering", "diagonalization", "density-matrix"],
+  "author": "POLER[n] Studio + Super Z",
+  "language": "python",
+  "dependencies": ["numpy", "torch", "safetensors", "tokenizers"]
+}

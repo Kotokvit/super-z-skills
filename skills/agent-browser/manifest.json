@@ -1,0 +1,135 @@
+{
+  "name": "agent-browser",
+  "version": "1.0.0",
+  "description": "Fast Rust-based headless browser automation CLI with Node.js fallback. Navigate, click, type, snapshot pages. AI-agent friendly structured commands.",
+  "category": "web-automation",
+  "priority": 70,
+  "language": "rust",
+  "cost": {
+    "cpu": "medium",
+    "ram": "<1GB",
+    "time": "2-30s per page action",
+    "gpu": "none",
+    "network": "required",
+    "llm_calls": 0
+  },
+  "triggers": {
+    "content_contains": [
+      "browse",
+      "scrape page",
+      "click button",
+      "navigate",
+      "browser",
+      "браузер",
+      "snapshot",
+      "headless",
+      "scrape",
+      "website",
+      "сайт"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "navigate",
+            "click",
+            "type",
+            "snapshot",
+            "extract",
+            "scroll"
+          ]
+        },
+        "selector": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "html": {
+              "type": "string"
+            },
+            "screenshot": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "rust": ">=1.70",
+    "binaries": [
+      "agent-browser"
+    ]
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [
+      "session"
+    ],
+    "load": []
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.5
+  },
+  "entry_points": {
+    "default": "scripts/run.py"
+  },
+  "_notes": "External CLI tool — invoke via 'agent-browser' command in PATH.",
+  "tags": [
+    "browser",
+    "automation",
+    "scraping",
+    "rust",
+    "headless",
+    "agent-browser"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

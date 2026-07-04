@@ -1,0 +1,122 @@
+{
+  "name": "media-triage",
+  "version": "1.0.0",
+  "description": "Online conversation-triggered triage of audio/video URLs (YouTube, Soundcloud, direct media files). Detects media URL in user message, extracts audio via yt-dlp, transcribes via z-ai ASR, summarizes via poler-toolkit. Returns compact brief for the agent (3-5 lines). Designed to run in background, BEFORE the agent answers — not on user request.",
+  "category": "online-context",
+  "priority": 70,
+  "author": "Online Layer build, 2026-07-04",
+  "language": "python",
+
+  "cost": {
+    "cpu": "medium",
+    "ram": "<512MB",
+    "time": "15-90s per URL (download + ASR + summarize)",
+    "gpu": "none",
+    "network": "required (yt-dlp download + z-ai ASR API)",
+    "llm_calls": "0 by default; 1 if poler-toolkit --llm is passed"
+  },
+
+  "triggers": {
+    "file_extensions": [".mp3", ".wav", ".m4a", ".mp4", ".webm", ".aac", ".flac", ".ogg"],
+    "url_schemes": ["http", "https"],
+    "mime_types": ["audio/*", "video/*"],
+    "content_contains": [
+      "youtube.com", "youtu.be", "soundcloud.com",
+      "vimeo.com", ".mp3", ".wav", ".m4a", ".mp4",
+      "подкаст", "podcast", "видео", "video",
+      "послушай", "посмотри", "watch this", "listen to"
+    ]
+  },
+
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "Media URL, local audio/video file path, or '-' to read message from stdin"
+        },
+        "json": {"type": "boolean", "default": true},
+        "max_duration_sec": {
+          "type": "integer", "minimum": 30, "default": 7200,
+          "description": "Hard cap on media length; longer media will be truncated to first N seconds"
+        },
+        "lang_hint": {
+          "type": "string", "default": "auto",
+          "description": "Optional language hint for ASR (e.g. 'ru', 'en')"
+        }
+      },
+      "required": ["input"]
+    }
+  },
+
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {"type": "string", "enum": ["success", "error", "skipped"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "data": {
+          "type": ["object", "null"],
+          "properties": {
+            "source": {"type": "string"},
+            "source_type": {"type": "string", "enum": ["youtube", "soundcloud", "url", "file"]},
+            "title": {"type": "string"},
+            "duration_sec": {"type": ["number", "null"]},
+            "transcript_chars": {"type": "integer"},
+            "brief": {"type": "string", "description": "3-5 line compact summary for the agent"},
+            "keywords": {"type": "array", "items": {"type": "string"}},
+            "theme": {"type": ["string", "null"]},
+            "suggested_questions": {"type": "array", "items": {"type": "string"}},
+            "transcript_path": {"type": "string", "description": "Path to saved full transcript"},
+            "meta": {
+              "type": "object",
+              "properties": {
+                "extraction_method": {"type": "string"},
+                "asr_elapsed_sec": {"type": "number"},
+                "summarize_elapsed_sec": {"type": "number"},
+                "total_elapsed_sec": {"type": "number"}
+              }
+            }
+          }
+        },
+        "error": {"type": ["string", "null"]}
+      },
+      "required": ["status", "confidence"]
+    }
+  },
+
+  "requires": {
+    "python": ">=3.8",
+    "binaries": ["yt-dlp", "ffmpeg", "z-ai"],
+    "python_packages": []
+  },
+
+  "dependencies": [],
+
+  "memory": {
+    "save": ["brief", "keywords", "transcript_path"],
+    "load": [],
+    "notes": "Transcript cached by URL hash in /tmp/media_triage_cache/ to avoid re-transcription"
+  },
+
+  "self_test": {
+    "doctor_script": "doctor.py",
+    "smoke_test": "",
+    "sample_input": ""
+  },
+
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.4,
+    "required_fields": ["status", "confidence", "data"]
+  },
+
+  "entry_points": {
+    "ingest": "scripts/media_triage.py",
+    "triage": "scripts/media_triage.py"
+  },
+
+  "tags": ["youtube", "asr", "transcription", "online", "triage",
+           "audio", "video", "podcast", "brief"]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "poler-toolkit",
+  "version": "6.1.0",
+  "description": "POLER v6 — standalone text-data analysis instrument. grep-killer, EPUB/archive reading, TF-IDF epsilon scoring, section detection, cross-file resonance, diff. Zero dependencies, Python 3.8+ stdlib only.",
+  "tags": ["text", "grep", "search", "epub", "archive", "tf-idf", "analyze", "diff", "poler"],
+  "author": "POLER[n] Studio + Super Z",
+  "language": "python",
+  "zero_dependencies": true
+}

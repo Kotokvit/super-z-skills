@@ -1,0 +1,69 @@
+{
+  "name": "aminer-free-academic",
+  "version": "1.0.0",
+  "description": ">",
+  "category": "academic-research",
+  "priority": 72,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "markdown",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [
+      "http",
+      "https"
+    ],
+    "mime_types": [],
+    "content_contains": [
+      "academic",
+      "paper",
+      "论文",
+      "论文",
+      "исследовани",
+      "paper search",
+      "literature",
+      "literatura"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "aminer-free-academic",
+    "academic-research",
+    "academic",
+    "paper",
+    "论文",
+    "论文",
+    "исследовани"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

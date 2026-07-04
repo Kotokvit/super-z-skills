@@ -1,0 +1,69 @@
+{
+  "name": "qingyan-research",
+  "version": "1.0.0",
+  "description": "Deep web research and HTML report generation. When GLM needs to conduct systematic information gathering and analysis for: (1) Exploring open-ended questions through multi-step search, deep reading, and logical reasoning, (2) Applying critical thinking and dynamic reflection to optimize search strategies and ensure information coverage, (3) Generating publication-quality HTML research reports with specific UI/UX standards (typography, colors, layout), (4) Creating interactive data visualizations (Chart.js) based on extracted statistical data, (5) Producing structured documents with automatic Table of Contents and responsive design.",
+  "category": "academic-research",
+  "priority": 72,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [
+      "http",
+      "https"
+    ],
+    "mime_types": [],
+    "content_contains": [
+      "academic",
+      "paper",
+      "论文",
+      "论文",
+      "исследовани",
+      "paper search",
+      "literature",
+      "literatura"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "qingyan-research",
+    "academic-research",
+    "academic",
+    "paper",
+    "论文",
+    "论文",
+    "исследовани"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

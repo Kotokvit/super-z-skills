@@ -1,0 +1,75 @@
+{
+  "name": "quiz-mastery",
+  "version": "1.0.0",
+  "description": "出题、测验、复习、掌握度追踪工具。**用户说\"复习\"、\"巩固\"、\"回顾\"任一关键词时优先触发本 skill**。当用户的请求与\"题目/复习\"相关时触发：把学习资料/PDF/材料转成题目练习（\"给这个 PDF 出几道题\"）、导入题目文件做练习（\"我有一份题目文件，帮我做\"）、复习已学内容（\"复习一下昨天的\"、\"巩固一下\"、\"回顾下昨天\"、\"用艾宾浩斯帮我安排\"）、遗忘曲线追踪、掌握度评分。**🔴 强制规则**：每次出题/导入题目成功后，**首轮展示题目前必须问一句**\"要不要生成网页练习页？\"，用户说要 → 调用 quiz-html skill。**不处理**：长期学习项目的进度管理、计划制定（→ study-buddy）。",
+  "category": "education",
+  "priority": 65,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "scripts/generate_from_material.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "gaokao",
+      "高考",
+      "quiz",
+      "квиз",
+      "study",
+      "учеб",
+      "interview",
+      "собеседование",
+      "question"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "quiz-mastery",
+    "education",
+    "gaokao",
+    "高考",
+    "quiz",
+    "квиз",
+    "study"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  },
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "5-15s per query (single LLM call)",
+    "gpu": "none",
+    "network": "required (z-ai chat API)",
+    "llm_calls": 1
+  }
+}

@@ -1,0 +1,195 @@
+{
+  "name": "doc-triage",
+  "version": "1.0.0",
+  "description": "Online conversation-triggered triage of PDF/docx/txt/md attachments. Detects file path in user message, extracts text (pdf-ocr for PDF, python-docx for .docx, direct read for txt/md), summarizes via poler-toolkit. Returns source-grounded brief (Pattern 1) with claims+citations+coverage — NOT a full report. Designed to run in background BEFORE the agent answers.",
+  "category": "online-context",
+  "priority": 71,
+  "author": "Online Layer build, 2026-07-04",
+  "language": "python",
+  "cost": {
+    "cpu": "low (txt) / medium (docx) / high (OCR PDF)",
+    "ram": "<512MB",
+    "time": "0.1-15s per file (depends on OCR need)",
+    "gpu": "none",
+    "network": "never (all local)",
+    "llm_calls": "0 by default; 1 if poler-toolkit --llm is passed"
+  },
+  "triggers": {
+    "file_extensions": [
+      ".pdf",
+      ".docx",
+      ".doc",
+      ".txt",
+      ".md",
+      ".rtf"
+    ],
+    "url_schemes": [],
+    "mime_types": [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/msword",
+      "text/plain",
+      "text/markdown",
+      "application/rtf"
+    ],
+    "content_contains": [
+      "pdf",
+      "docx",
+      "документ",
+      "document",
+      "прочитай",
+      "read this",
+      "прикрепил",
+      "attached",
+      "выжимка",
+      "summary",
+      "triage",
+      "сортировк",
+      "prioritize docs",
+      "приоритизируй"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "File path (PDF/docx/txt/md) or '-' to read message from stdin (will extract first matching file path)"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Hard cap on pages to OCR for PDFs"
+        },
+        "transient": {
+          "type": "boolean",
+          "default": false,
+          "description": "Pattern 5: if true, watcher will purge this entry when session ends"
+        }
+      },
+      "required": [
+        "input"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error",
+            "skipped"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "brief": {
+              "type": "string"
+            },
+            "claims": {
+              "type": "array"
+            },
+            "coverage": {
+              "type": "object"
+            },
+            "theme": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "keywords": {
+              "type": "array"
+            },
+            "text_path": {
+              "type": "string"
+            },
+            "source_file": {
+              "type": "string"
+            },
+            "extraction_meta": {
+              "type": "object"
+            }
+          }
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.8",
+    "binaries": [
+      "pdftotext"
+    ],
+    "python_packages": []
+  },
+  "dependencies": [
+    "pdf-ocr",
+    "poler-toolkit"
+  ],
+  "memory": {
+    "save": [
+      "text",
+      "theme"
+    ],
+    "load": [],
+    "notes": "Extracted text cached by file hash to avoid re-OCR of same file"
+  },
+  "self_test": {
+    "doctor_script": "doctor.py",
+    "smoke_test": "tests/smoke_test.py",
+    "sample_input": "examples/sample.txt"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.3,
+    "required_fields": [
+      "status",
+      "confidence",
+      "data"
+    ]
+  },
+  "entry_points": {
+    "default": "scripts/run.py"
+  },
+  "tags": [
+    "pdf",
+    "docx",
+    "document",
+    "triage",
+    "online",
+    "extract",
+    "summary",
+    "ocr",
+    "doc-triage"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

@@ -1,0 +1,197 @@
+{
+  "name": "pdf-ocr",
+  "version": "1.0.0",
+  "description": "Auto-detect digital vs scanned PDF and extract text. Digital → pdftotext; scanned → tesseract OCR with rus+ukr+eng. Bundled tessdata (no root needed).",
+  "category": "document-extraction",
+  "priority": 75,
+  "author": "POLER[n] Studio + Super Z",
+  "language": "python",
+  "cost": {
+    "cpu": "low (digital) / high (OCR)",
+    "ram": "<512MB (digital) / <1GB (OCR)",
+    "time": "0.05s/page digital; 2-5s/page OCR (dpi=200)",
+    "gpu": "none",
+    "network": "never",
+    "llm_calls": 0
+  },
+  "triggers": {
+    "file_extensions": [
+      ".pdf"
+    ],
+    "mime_types": [
+      "application/pdf"
+    ],
+    "content_contains": [
+      "pdf",
+      "ocr",
+      "распознавание",
+      "сканированный"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "PDF file path or '-' for stdin"
+        },
+        "force_ocr": {
+          "type": "boolean",
+          "default": false,
+          "description": "Skip pdftotext; always OCR"
+        },
+        "lang": {
+          "type": "string",
+          "default": "rus+ukr+eng",
+          "description": "Tesseract langs, '+'-joined"
+        },
+        "max_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 50
+        },
+        "dpi": {
+          "type": "integer",
+          "minimum": 72,
+          "maximum": 600,
+          "default": 200
+        },
+        "psm": {
+          "type": "integer",
+          "default": 3,
+          "description": "Tesseract page-segmentation mode"
+        }
+      },
+      "required": [
+        "input"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "0.95 digital; 0.7-0.9 OCR depending on chars/page"
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "meta": {
+              "type": "object",
+              "properties": {
+                "ocr_used": {
+                  "type": "boolean"
+                },
+                "pages_total": {
+                  "type": "integer"
+                },
+                "pages_processed": {
+                  "type": "integer"
+                },
+                "chars_per_page_avg": {
+                  "type": "number"
+                },
+                "format": {
+                  "type": "string"
+                },
+                "extraction_method": {
+                  "type": "string"
+                },
+                "langs": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "elapsed_sec": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "ocr_used",
+                "pages_total",
+                "extraction_method"
+              ]
+            }
+          },
+          "required": [
+            "text",
+            "meta"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "confidence",
+        "data"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.8",
+    "binaries": [
+      "pdftotext",
+      "pdftoppm",
+      "tesseract"
+    ],
+    "python_packages": [],
+    "notes": "tessdata bundled in ./tessdata/ (rus + ukr)"
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [
+      "text"
+    ],
+    "load": [],
+    "notes": "Text results cached by file hash (planned)"
+  },
+  "self_test": {
+    "doctor_script": "doctor.py",
+    "smoke_test": "tests/smoke_test.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.4,
+    "required_fields": [
+      "status",
+      "confidence",
+      "data",
+      "data.text",
+      "data.meta"
+    ]
+  },
+  "entry_points": {
+    "extract": "scripts/ocr_pdf.py"
+  },
+  "tags": [
+    "pdf",
+    "ocr",
+    "tesseract",
+    "text-extraction",
+    "document",
+    "pdf-ocr"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

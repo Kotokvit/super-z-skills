@@ -1,0 +1,149 @@
+{
+  "name": "gap-detector",
+  "version": "1.0.0",
+  "description": "Online-layer Reasoner (Pattern 2). Compares a user message against the current context_brief.json and uses an LLM (z-ai chat) to identify what knowledge is MISSING for a high-confidence grounded answer. Returns a Pattern 1 source-grounded brief: claims (what we DO know from context_brief), coverage (aspects_queried vs aspects_covered), and a 'gaps' array describing missing knowledge. Each gap can trigger either a background skill suggestion or an 'ask user' prompt — this is the citation-or-decline Reasoner from NotebookLM research.",
+  "category": "online-context",
+  "priority": 65,
+  "author": "Online Layer build, 2026-07-04",
+  "language": "python",
+  "cost": {
+    "cpu": "low",
+    "ram": "<64MB",
+    "time": "2-8s per call (1 LLM call via z-ai chat)",
+    "gpu": "none",
+    "network": "required (z-ai chat API)",
+    "llm_calls": 1
+  },
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": []
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User's question/message, or '-' for stdin"
+        },
+        "context_brief_path": {
+          "type": "string",
+          "default": "/home/z/my-project/.context/context_brief.json",
+          "description": "Path to context_brief.json to check against"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        },
+        "transient": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "input"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error",
+            "skipped"
+          ]
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "data": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "brief": {
+              "type": "string"
+            },
+            "claims": {
+              "type": "array"
+            },
+            "coverage": {
+              "type": "object"
+            },
+            "gaps": {
+              "type": "array"
+            },
+            "suggested_skills": {
+              "type": "array"
+            },
+            "ask_user": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.8",
+    "binaries": [
+      "z-ai"
+    ],
+    "python_packages": []
+  },
+  "dependencies": [
+    "LLM"
+  ],
+  "memory": {
+    "save": [],
+    "load": [
+      "context_brief.json"
+    ],
+    "notes": "Reads but does not modify context_brief.json"
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.3,
+    "required_fields": [
+      "status",
+      "confidence"
+    ]
+  },
+  "entry_points": {
+    "ingest": "scripts/gap_detector.py"
+  },
+  "tags": [
+    "reasoner",
+    "gap",
+    "llm",
+    "online",
+    "citation-or-decline",
+    "pattern2",
+    "gap-detector"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

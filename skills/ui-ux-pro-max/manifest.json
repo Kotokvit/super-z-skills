@@ -1,0 +1,79 @@
+{
+  "name": "ui-ux-pro-max",
+  "version": "1.0.0",
+  "description": "UI/UX design intelligence and implementation guidance for building polished interfaces. Use when the user asks for UI design, UX flows, information architecture, visual style direction, design systems/tokens, component specs, copy/microcopy, accessibility, or to generate/critique/refine frontend UI (HTML/CSS/JS, React, Next.js, Vue, Svelte, Tailwind). Includes workflows for (1) generating new UI layouts and styling, (2) improving existing UI/UX, (3) producing design-system tokens and component guidelines, and (4) turning UX recommendations into concrete code changes.",
+  "category": "creative-media",
+  "priority": 65,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".gif",
+      ".webp"
+    ],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "image",
+      "изображ",
+      "video",
+      "видео",
+      "podcast",
+      "подкаст",
+      "storyboard",
+      "сценарий",
+      "design",
+      "дизайн",
+      "UI",
+      "UX",
+      "интерфейс",
+      "wireframe",
+      "прототип"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "ui-ux-pro-max",
+    "creative-media",
+    "image",
+    "изображ",
+    "video",
+    "видео",
+    "podcast"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

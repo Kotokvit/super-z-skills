@@ -1,0 +1,72 @@
+{
+  "name": "video-generation",
+  "version": "1.0.0",
+  "description": "Implement AI-powered video generation capabilities using the z-ai-web-dev-sdk. Use this skill when the user needs to generate videos from text prompts or images, create video content programmatically, or build applications that produce video outputs. Supports asynchronous task management with status polling and result retrieval.",
+  "category": "creative-media",
+  "priority": 65,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "typescript",
+  "docs_only": false,
+  "entry_point": "scripts/video.ts",
+  "triggers": {
+    "file_extensions": [
+      ".mp4",
+      ".webm",
+      ".mp3",
+      ".wav"
+    ],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "image",
+      "изображ",
+      "video",
+      "видео",
+      "podcast",
+      "подкаст",
+      "storyboard",
+      "сценарий",
+      "design",
+      "дизайн",
+      "UI",
+      "UX"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "video-generation",
+    "creative-media",
+    "image",
+    "изображ",
+    "video",
+    "видео",
+    "podcast"
+  ]
+}

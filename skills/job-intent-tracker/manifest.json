@@ -1,0 +1,68 @@
+{
+  "name": "job-intent-tracker",
+  "version": "1.0.0",
+  "description": "帮助用户梳理求职意向、生成目标岗位画像，并维护一份结构化的\"岗位投递追踪表\"。当用户说\"我想换工作 / 不知道投什么岗 / 帮我看看我适合什么岗位 / 帮我管理投递进度 / 我投了好几家但记不住状态了 / 想做一个求职 OKR / 整理一下求职方向\"，或上传简历但没说要改简历时，应该主动触发本 skill。本 skill 也适用于实习生、应届生、转行候选人在求职启动阶段做\"自我盘点 + 目标画像 + 投递管理\"三件事。",
+  "category": "career",
+  "priority": 65,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "resume",
+      "резюме",
+      "CV",
+      "job",
+      "работа",
+      "vacancy",
+      "ваканс",
+      "interview prep",
+      "JD",
+      "job description"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "job-intent-tracker",
+    "career",
+    "resume",
+    "резюме",
+    "CV",
+    "job",
+    "работа"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

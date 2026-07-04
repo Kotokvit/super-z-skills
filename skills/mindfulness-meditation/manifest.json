@@ -1,0 +1,67 @@
+{
+  "name": "mindfulness-meditation",
+  "version": "1.0.0",
+  "description": "Build a meditation practice with guided sessions, streaks, and mindfulness reminders",
+  "category": "lifestyle-personal",
+  "priority": 50,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "markdown",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "dream",
+      "сон",
+      "fortune",
+      "удача",
+      "gift",
+      "подар",
+      "meditation",
+      "медитац",
+      "mindfulness"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "mindfulness-meditation",
+    "lifestyle-personal",
+    "dream",
+    "сон",
+    "fortune",
+    "удача",
+    "gift"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

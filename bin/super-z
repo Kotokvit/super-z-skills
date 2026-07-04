@@ -1,0 +1,403 @@
+#!/usr/bin/env bash
+# super-z — CLI entry point for the Super-Z Skill Orchestrator.
+#
+# Usage:
+#   super-z "your request"             # one-shot: watcher + orchestrator
+#   super-z --watch                    # interactive watcher mode (stdin loop)
+#   super-z --brief                    # show current context_brief.json
+#   super-z --skills                   # list all registered skills
+#   super-z --run <skill> "query"      # run a specific skill directly
+#   super-z --help                     # this help
+#
+# Architecture:
+#   1. Watcher scans your message → detects signals → dispatches matching skills
+#   2. Skill outputs (Pattern 1 briefs) accumulate in .context/context_brief.json
+#   3. Orchestrator reads briefs + builds DAG + executes + reports
+#   4. You get an answer grounded in pre-gathered data, not guesses
+#
+set -e
+
+# ─── Resolve project root ───────────────────────────────────────────────
+PROJECT_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+SKILLS_DIR="$PROJECT_ROOT/skills"
+ORCHESTRATOR="$SKILLS_DIR/_orchestrator/scripts"
+CONTEXT_DIR="$PROJECT_ROOT/.context"
+BRIEF_FILE="$CONTEXT_DIR/context_brief.json"
+
+# Use venv if available, else system Python
+if [ -f "$PROJECT_ROOT/.venv/bin/python3" ]; then
+    PYTHON="$PROJECT_ROOT/.venv/bin/python3"
+else
+    PYTHON="$(command -v python3)"
+fi
+
+# Colors
+RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'
+BLUE=$'\033[34m'; BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'
+
+# ─── Help ───────────────────────────────────────────────────────────────
+show_help() {
+    cat <<EOF
+${BOLD}super-z${RESET} — Self-regulating skill orchestrator
+
+${BOLD}Usage:${RESET}
+  super-z "your request"             ${DIM}# one-shot: watcher + orchestrator${RESET}
+  super-z --watch                    ${DIM}# interactive stdin loop${RESET}
+  super-z --brief                    ${DIM}# show current context_brief.json${RESET}
+  super-z --skills                   ${DIM}# list all registered skills${RESET}
+  super-z --signals                  ${DIM}# show watcher signal patterns${RESET}
+  super-z --run <skill> "query"      ${DIM}# run a specific skill directly${RESET}
+  super-z --enqueue "message"        ${DIM}# drop msg into inbox (daemon picks up)${RESET}
+  super-z --self-context "message"   ${DIM}# enqueue + wait for brief (agent hook)${RESET}
+  super-z --daemon start|stop|status ${DIM}# manage watcher daemon${RESET}
+  super-z --help                     ${DIM}# this help${RESET}
+
+${BOLD}How it works:${RESET}
+  1. Watcher scans your message for signals (URLs, keywords, intents)
+  2. Matching skills run in background → produce Pattern 1 briefs
+  3. Briefs accumulate in ${DIM}$BRIEF_FILE${RESET}
+  4. Agent reads briefs BEFORE answering → strategy decision, not data-gathering
+
+${BOLD}Examples:${RESET}
+  super-z "напиши пост про ИИ в медицине"
+  super-z "посмотри это https://youtube.com/watch?v=xxx"
+  super-z "что подарить маме на 60 лет"
+  super-z "сделай контент-план на месяц для SaaS"
+  super-z --run blog-writer "напиши 800 слов про продуктивность"
+
+${BOLD}Skills:${RESET} $(find "$SKILLS_DIR" -maxdepth 1 -mindepth 1 -type d | wc -l) registered
+${BOLD}Watcher:${RESET}  31 signal patterns, 30 skill mappings
+EOF
+exit 0
+}
+
+# ─── Commands ───────────────────────────────────────────────────────────
+cmd_brief() {
+    if [ -f "$BRIEF_FILE" ]; then
+        cat "$BRIEF_FILE" | $PYTHON -m json.tool 2>/dev/null || cat "$BRIEF_FILE"
+    else
+        echo "${DIM}(no context brief yet)${RESET}"
+    fi
+}
+
+cmd_skills() {
+    echo "${BOLD}Registered skills:${RESET}"
+    echo ""
+    for d in "$SKILLS_DIR"/*/; do
+        name=$(basename "$d")
+        [ "$name" = "_orchestrator" ] && continue
+        [ "$name" = "_shared" ] && continue
+        if [ -f "$d/scripts/run.py" ]; then
+            status="${GREEN}✓ executable${RESET}"
+        elif [ -f "$d/manifest.json" ]; then
+            status="${YELLOW}○ docs_only${RESET}"
+        else
+            status="${RED}✗ no manifest${RESET}"
+        fi
+        # Pull description from manifest
+        desc=""
+        if [ -f "$d/manifest.json" ]; then
+            desc=$($PYTHON -c "import json; m=json.load(open('$d/manifest.json')); print(m.get('description','')[:80])" 2>/dev/null)
+        fi
+        printf "  %-30s %s  %s\n" "$name" "$status" "${DIM}${desc}${RESET}"
+    done | sed 's/\x1b\[[0-9;]*m//g' | sort | head -80
+}
+
+cmd_signals() {
+    $PYTHON -c "
+import sys; sys.path.insert(0, '$ORCHESTRATOR')
+from watcher import SIGNAL_PATTERNS, SIGNAL_TO_SKILL
+print('${BOLD}Watcher signal patterns:${RESET}')
+print()
+for sig, skill in sorted(SIGNAL_TO_SKILL.items()):
+    print(f'  {sig:35s} → {skill}')
+print()
+print(f'Total: {len(SIGNAL_PATTERNS)} patterns, {len(SIGNAL_TO_SKILL)} mappings')
+" 2>&1
+}
+
+cmd_run_skill() {
+    skill_name="$1"
+    shift
+    query="$*"
+    if [ -z "$skill_name" ] || [ -z "$query" ]; then
+        echo "${RED}Usage: super-z --run <skill> \"query\"${RESET}"
+        exit 1
+    fi
+    skill_dir="$SKILLS_DIR/$skill_name"
+    if [ ! -d "$skill_dir" ]; then
+        echo "${RED}Skill not found: $skill_name${RESET}"
+        exit 1
+    fi
+    if [ -f "$skill_dir/scripts/run.py" ]; then
+        $PYTHON "$skill_dir/scripts/run.py" "$query"
+    else
+        echo "${YELLOW}Skill '$skill_name' has no executable wrapper. Using LLM wrapper directly.${RESET}"
+        $PYTHON "$SKILLS_DIR/_shared/llm_wrapper.py" --skill "$skill_name" --query "$query"
+    fi
+}
+
+cmd_watch() {
+    echo "${BOLD}Super-Z interactive watcher${RESET} ${DIM}(type messages, Ctrl-D to exit)${RESET}"
+    echo ""
+    $PYTHON "$ORCHESTRATOR/watcher.py" --stdin
+}
+
+cmd_daemon() {
+    local action="${1:-status}"
+    case "$action" in
+        start)
+            $PYTHON "$ORCHESTRATOR/watcher_daemon.py" --start
+            ;;
+        stop)
+            $PYTHON "$ORCHESTRATOR/watcher_daemon.py" --stop
+            ;;
+        restart)
+            $PYTHON "$ORCHESTRATOR/watcher_daemon.py" --restart
+            ;;
+        status)
+            $PYTHON "$ORCHESTRATOR/watcher_daemon.py" --status
+            ;;
+        foreground)
+            $PYTHON "$ORCHESTRATOR/watcher_daemon.py" --foreground
+            ;;
+        *)
+            echo "${RED}Usage: super-z --daemon start|stop|restart|status|foreground${RESET}"
+            exit 1
+            ;;
+    esac
+}
+
+cmd_enqueue() {
+    # Drop a message file into .context/inbox/ and return immediately.
+    # Daemon (if running) will pick it up and update context_brief.json.
+    local message="$*"
+    if [ -z "$message" ]; then
+        echo "${RED}Usage: super-z --enqueue \"message\"${RESET}"
+        exit 1
+    fi
+    mkdir -p "$CONTEXT_DIR/inbox"
+    local ts=$(date +%s)
+    local id="msg-$(date +%Y%m%d-%H%M%S)-$$"
+    local file="$CONTEXT_DIR/inbox/${id}.json"
+    $PYTHON -c "
+import json, sys, time
+payload = {
+    'id': '$id',
+    'ts': $ts,
+    'message': sys.argv[1],
+    'wait_for_brief': False,
+}
+with open('$file', 'w', encoding='utf-8') as f:
+    json.dump(payload, f, ensure_ascii=False, indent=2)
+print('$id')
+" "$message"
+}
+
+cmd_self_context() {
+    # The agent self-trigger: enqueue a message, wait for daemon to process,
+    # then print the latest entries from context_brief.json so the agent can
+    # fold them into its response. This is the "без воли" hook the agent
+    # runs at the start of every reply.
+    local message="$*"
+    if [ -z "$message" ]; then
+        echo "${DIM}(no message to enqueue)${RESET}"
+        exit 0
+    fi
+    mkdir -p "$CONTEXT_DIR/inbox"
+    local ts=$(date +%s)
+    local id="msg-$(date +%Y%m%d-%H%M%S)-$$"
+    local file="$CONTEXT_DIR/inbox/${id}.json"
+    local before=$($PYTHON -c "
+import json
+try:
+    b = json.load(open('$BRIEF_FILE'))
+    print(len(b.get('entries', [])))
+except:
+    print(0)
+" 2>/dev/null || echo 0)
+
+    $PYTHON -c "
+import json, sys
+payload = {
+    'id': '$id',
+    'ts': $ts,
+    'message': sys.argv[1],
+    'wait_for_brief': True,
+    'session_id': 'self-context',
+}
+with open('$file', 'w', encoding='utf-8') as f:
+    json.dump(payload, f, ensure_ascii=False, indent=2)
+" "$message"
+
+    # Wait for the brief to be updated (max 12 seconds)
+    local deadline=$((ts + 12))
+    local now=$(date +%s)
+    while [ "$now" -lt "$deadline" ]; do
+        local after=$($PYTHON -c "
+import json
+try:
+    b = json.load(open('$BRIEF_FILE'))
+    print(len(b.get('entries', [])))
+except:
+    print(0)
+" 2>/dev/null || echo 0)
+        if [ "$after" -gt "$before" ]; then
+            # Print new entries as compact text for the agent to consume.
+            # Brief entry format (v2.0):
+            #   { "message_preview": "...", "results": { "<skill>": SkillOutput, ... } }
+            $PYTHON -c "
+import json, sys
+b = json.load(open('$BRIEF_FILE'))
+entries = b.get('entries', [])
+new_entries = entries[$before:]
+for e in new_entries:
+    msg = e.get('message_preview', '')[:80]
+    print(f'=== message: {msg} ===')
+    for skill, out in (e.get('results') or {}).items():
+        if not isinstance(out, dict):
+            continue
+        status = out.get('status', '?')
+        conf  = out.get('confidence', '?')
+        summ  = (out.get('summary') or '').strip()
+        ents  = out.get('entities', []) or []
+        srcs  = out.get('sources', []) or []
+        warns = out.get('warnings', []) or []
+        arts  = out.get('artifacts', []) or []
+        print(f'[{skill}] status={status} conf={conf}')
+        if summ:
+            print(f'  summary: {summ[:400]}')
+        for ent in ents[:5]:
+            if isinstance(ent, dict):
+                print(f'  entity: {ent.get(\"type\",\"?\")}/{ent.get(\"name\", ent.get(\"value\",\"?\"))}')
+        for src in srcs[:3]:
+            if isinstance(src, dict):
+                print(f'  source: {src.get(\"title\", src.get(\"url\", str(src)))[:120]}')
+        for w in warns[:3]:
+            print(f'  warn: {str(w)[:120]}')
+        for a in arts[:3]:
+            if isinstance(a, dict):
+                print(f'  artifact: {a.get(\"path\", a.get(\"type\", str(a)))[:120]}')
+" 2>/dev/null
+            exit 0
+        fi
+        sleep 0.3
+        now=$(date +%s)
+    done
+    # Timeout — daemon may not be running, or no skills triggered
+    echo "${DIM}(no new brief entries within 12s)${RESET}"
+}
+
+cmd_oneshot() {
+    local query="$*"
+    if [ -z "$query" ]; then
+        echo "${RED}Usage: super-z \"your request\"${RESET}"
+        echo "Run: super-z --help"
+        exit 1
+    fi
+
+    mkdir -p "$CONTEXT_DIR"
+
+    # Step 1: Run watcher on the message (produces brief in background)
+    echo "${DIM}[1/3] Scanning message for signals and dispatching skills...${RESET}"
+    $PYTHON "$ORCHESTRATOR/watcher.py" --process "$query" --wait 8 2>&1 | grep -E "dispatched|signal|skill|watcher" | head -10 || true
+
+    # Step 2: Read the brief and build context for the LLM
+    local brief_context=""
+    if [ -f "$BRIEF_FILE" ]; then
+        BRIEF_COUNT=$($PYTHON -c "
+import json
+try:
+    b = json.load(open('$BRIEF_FILE'))
+    print(len(b.get('entries', [])))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
+        
+        if [ "$BRIEF_COUNT" -gt "0" ]; then
+            echo "${DIM}[2/3] Pre-gathered $BRIEF_COUNT skill brief(s) — feeding to LLM as context${RESET}"
+            brief_context=$($PYTHON -c "
+import json
+b = json.load(open('$BRIEF_FILE'))
+entries = b.get('entries', [])
+lines = []
+for e in entries[-5:]:  # last 5 briefs
+    skill = e.get('skill', '?')
+    brief = e.get('brief', '')
+    claims = e.get('claims', [])
+    if claims:
+        text = claims[0].get('text', '')[:500]
+        lines.append(f'[{skill}] {text}')
+    elif brief:
+        lines.append(f'[{skill}] {brief}')
+print('\n---\n'.join(lines))
+" 2>/dev/null)
+        else
+            echo "${DIM}[2/3] No matching skills triggered. Using general reasoning.${RESET}"
+        fi
+    else
+        echo "${DIM}[2/3] No brief file yet. Using general reasoning.${RESET}"
+    fi
+
+    # Step 3: Call z-ai chat with query + brief as context
+    echo "${DIM}[3/3] Generating response...${RESET}"
+    echo ""
+    
+    local full_prompt
+    if [ -n "$brief_context" ]; then
+        full_prompt="You are Super-Z, a self-regulating skill orchestrator. Below is pre-gathered context from skills that were auto-triggered by the user's message. Use it to ground your answer. If the briefs don't fully answer the question, supplement with your own knowledge. Respond in the user's language (Russian if they wrote in Russian).
+
+=== PRE-GATHERED CONTEXT (from auto-triggered skills) ===
+$brief_context
+=== END CONTEXT ===
+
+USER REQUEST:
+$query"
+    else
+        full_prompt="You are Super-Z, a self-regulating skill orchestrator. Respond in the user's language (Russian if they wrote in Russian). Be specific and actionable.
+
+USER REQUEST:
+$query"
+    fi
+    
+    # Call z-ai chat with system prompt
+    z-ai chat \
+        --prompt "$full_prompt" \
+        --system "You are Super-Z. You have access to 75+ specialized skills. When skills were auto-triggered, their outputs appear in the message as PRE-GATHERED CONTEXT. Use that context. Respond in the user's language." \
+        2>&1 | $PYTHON -c "
+import sys, json
+out = sys.stdin.read()
+# z-ai CLI may print log lines before JSON envelope
+start = out.find('{')
+if start >= 0:
+    try:
+        env = json.loads(out[start:])
+        if isinstance(env, dict) and 'choices' in env:
+            content = env['choices'][0].get('message', {}).get('content', '')
+            if content:
+                sys.stdout.write(content)
+                sys.stdout.flush()
+                # Use os._exit to bypass bare except in try/except above
+                import os
+                os._exit(0)
+    except Exception:
+        pass
+# Fallback: print raw output
+sys.stdout.write(out)
+"
+}
+
+# ─── Main ───────────────────────────────────────────────────────────────
+case "${1:-}" in
+    --help|-h)        show_help ;;
+    --brief)          cmd_brief ;;
+    --skills)         cmd_skills ;;
+    --signals)        cmd_signals ;;
+    --watch)          cmd_watch ;;
+    --run)            shift; cmd_run_skill "$@" ;;
+    --daemon)         shift; cmd_daemon "$@" ;;
+    --enqueue)        shift; cmd_enqueue "$@" ;;
+    --self-context)   shift; cmd_self_context "$@" ;;
+    "")               show_help ;;
+    *)                cmd_oneshot "$@" ;;
+esac

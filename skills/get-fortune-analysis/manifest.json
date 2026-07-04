@@ -1,0 +1,67 @@
+{
+  "name": "get-fortune-analysis",
+  "version": "1.0.0",
+  "description": "生成视觉华丽、内容详实、具有仪式感的流年运势报告（流金星象风格）。",
+  "category": "lifestyle-personal",
+  "priority": 65,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "dream",
+      "сон",
+      "fortune",
+      "удача",
+      "gift",
+      "подар",
+      "meditation",
+      "медитац",
+      "mindfulness"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "get-fortune-analysis",
+    "lifestyle-personal",
+    "dream",
+    "сон",
+    "fortune",
+    "удача",
+    "gift"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

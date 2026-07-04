@@ -1,0 +1,105 @@
+{
+  "name": "skill-creator",
+  "version": "1.0.0",
+  "description": "Meta-skill: creates new skills. Generates manifest.json, SKILL.md, scripts/main.py from a description. Useful when user wants to add a new capability to the orchestrator.",
+  "category": "text-analysis",
+  "priority": 55,
+  "author": "Auto-registered by register_unregistered_skills.py, 2026-07-04",
+  "language": "typescript",
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "1-10s typical",
+    "gpu": "none",
+    "network": "sometimes (depends on skill)",
+    "llm_calls": "0-1 depending on skill"
+  },
+  "triggers": {
+    "file_extensions": [],
+    "content_contains": [
+      "создай навык",
+      "create skill",
+      "new skill",
+      "skill creator"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "Input text, URL, file path, or '-' for stdin"
+        }
+      },
+      "required": [
+        "input"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "data": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.8",
+    "binaries": [],
+    "python_packages": []
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [],
+    "load": [],
+    "notes": "Auto-registered — refine manifest if needed"
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.3,
+    "required_fields": [
+      "status"
+    ]
+  },
+  "entry_points": {
+    "ingest": "scripts/quick_validate.py"
+  },
+  "tags": [
+    "meta",
+    "skill",
+    "create",
+    "scaffold",
+    "skill-creator"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

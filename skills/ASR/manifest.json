@@ -1,0 +1,117 @@
+{
+  "name": "ASR",
+  "version": "1.0.0",
+  "description": "Audio speech recognition via z-ai-web-dev-sdk. Accepts base64-encoded audio (WAV/MP3/etc., <30s per z-ai API limit) or path to audio file. Returns text transcript. Used by media-triage internally for chunked transcription.",
+  "category": "ai-media",
+  "priority": 72,
+  "author": "Auto-registered by register_unregistered_skills.py, 2026-07-04",
+  "language": "typescript",
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "1-10s typical",
+    "gpu": "none",
+    "network": "sometimes (depends on skill)",
+    "llm_calls": "0-1 depending on skill"
+  },
+  "triggers": {
+    "file_extensions": [
+      ".wav",
+      ".mp3",
+      ".m4a",
+      ".flac",
+      ".ogg",
+      ".aac"
+    ],
+    "mime_types": [
+      "audio/*"
+    ],
+    "content_contains": [
+      "transcribe",
+      "распознай",
+      "ASR",
+      "аудио",
+      "audio"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "Input text, URL, file path, or '-' for stdin"
+        }
+      },
+      "required": [
+        "input"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "data": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.8",
+    "binaries": [],
+    "python_packages": []
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [],
+    "load": [],
+    "notes": "Auto-registered — refine manifest if needed"
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.3,
+    "required_fields": [
+      "status"
+    ]
+  },
+  "entry_points": {
+    "ingest": "scripts/asr.ts"
+  },
+  "tags": [
+    "audio",
+    "asr",
+    "transcribe",
+    "speech",
+    "stt",
+    "ASR"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

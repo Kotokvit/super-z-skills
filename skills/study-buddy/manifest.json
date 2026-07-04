@@ -1,0 +1,75 @@
+{
+  "name": "study-buddy",
+  "version": "1.0.0",
+  "description": "智能督学助手，管理用户的长期学习项目工作流。当用户表达学习项目相关意图时触发：创建/制定学习计划（\"我想学X\"、\"帮我制定计划\"）、汇报学习进度（\"学完了\"、\"今天搞定了\"、\"完成今日任务\"）、查询计划状态（\"我学到哪了\"、\"看下进度\"）、查看学习报告（\"日报\"\"周报\"\"月报\"\"项目总结\"\"5月10号到15号的报告\"）、晨间/晚间打卡复盘、督促、动态调整计划、抱怨学不下去时（情绪支持）。**🔴 项目生成流程铁律**：项目生成成功后**必须一口气走完\"项目→知识点→计划表\"**，禁止只汇报\"项目已生成 / X 个知识点 / X 个模块\"就停下，必须**立即**输出\"DAY / 项目 / 知识点 / 时长 / 难度\"表格供用户确认 DAY 安排，否则视为流程失败。**🔴 报告查询铁律**：用户表达查看学习报告意图时（日报/周报/月报/项目总结/任意时间段），必须从 USER.md 取**对应时间段**的 `project_id` + `knowledge_id`，传给 `study_buddy_supervise` 工具的 `study_check` action 拿原始数据，按\"模块3 主动报告查询\"输出，**全程只读不写 USER.md**。**不处理**：单次出题（→ quiz-mastery）、Cheatsheet 生成（→ cheat-sheet）、把题目文件导入做练习（→ quiz-mastery）。",
+  "category": "education",
+  "priority": 50,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "gaokao",
+      "高考",
+      "quiz",
+      "квиз",
+      "study",
+      "учеб",
+      "interview",
+      "собеседование",
+      "question"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "study-buddy",
+    "education",
+    "gaokao",
+    "高考",
+    "quiz",
+    "квиз",
+    "study"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  },
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "5-15s per query (single LLM call)",
+    "gpu": "none",
+    "network": "required (z-ai chat API)",
+    "llm_calls": 1
+  }
+}

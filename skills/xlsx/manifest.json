@@ -1,0 +1,139 @@
+{
+  "name": "xlsx",
+  "version": "1.0.0",
+  "description": "Spreadsheet creation/editing/analysis for .xlsx/.xlsm/.csv/.tsv. Pivot tables, charts inside spreadsheets, data transformation, CSV/JSON/PDF conversion.",
+  "category": "document-production",
+  "priority": 76,
+  "language": "python",
+  "cost": {
+    "cpu": "low",
+    "ram": "<512MB",
+    "time": "1-30s per workbook",
+    "gpu": "none",
+    "network": "false",
+    "llm_calls": 0
+  },
+  "triggers": {
+    "file_extensions": [
+      ".xlsx",
+      ".xlsm",
+      ".csv",
+      ".tsv"
+    ],
+    "mime_types": [
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "text/csv",
+      "text/tab-separated-values"
+    ],
+    "content_contains": [
+      "excel",
+      "spreadsheet",
+      "таблица",
+      "pivot",
+      "workbook",
+      "csv"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": [
+            "array",
+            "object",
+            "string"
+          ],
+          "description": "Rows JSON, CSV string, or path"
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "default": "xlsx"
+        },
+        "sheets": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "data"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "size_bytes": {
+              "type": "integer"
+            },
+            "sheets": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.10",
+    "python_packages": [
+      "openpyxl"
+    ]
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [
+      "file"
+    ],
+    "load": []
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.5,
+    "required_fields": [
+      "status",
+      "data.file"
+    ]
+  },
+  "entry_points": {
+    "create": "xlsx.py"
+  },
+  "tags": [
+    "xlsx",
+    "excel",
+    "spreadsheet",
+    "csv",
+    "pivot",
+    "workbook"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

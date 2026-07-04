@@ -1,0 +1,144 @@
+{
+  "name": "LLM",
+  "version": "1.0.0",
+  "description": "Large language model chat completions via z-ai-web-dev-sdk. Multi-turn conversations, system prompts, context management. Used for chatbots, AI assistants, text generation.",
+  "category": "ai-media",
+  "priority": 65,
+  "language": "javascript",
+  "cost": {
+    "cpu": "low",
+    "ram": "<128MB",
+    "time": "1-30s per call",
+    "gpu": "none",
+    "network": "required (calls z.ai API)",
+    "llm_calls": 1
+  },
+  "triggers": {
+    "content_contains": [
+      "chat",
+      "llm",
+      "ai assistant",
+      "chatbot",
+      "generate text",
+      "glm",
+      "z-ai"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "user",
+                  "assistant"
+                ]
+              },
+              "content": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "content"
+            ]
+          }
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 0.7
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4096
+        }
+      },
+      "required": [
+        "messages"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            },
+            "tokens_used": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "node": ">=18",
+    "npm_packages": [
+      "z-ai-web-dev-sdk"
+    ]
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [],
+    "load": []
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.5,
+    "required_fields": [
+      "status",
+      "data.content"
+    ]
+  },
+  "entry_points": {
+    "chat": "scripts/chat.ts"
+  },
+  "tags": [
+    "llm",
+    "chat",
+    "ai",
+    "glm",
+    "z-ai",
+    "assistant",
+    "LLM"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

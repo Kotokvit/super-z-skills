@@ -1,0 +1,77 @@
+{
+  "name": "gift-evaluator",
+  "version": "1.0.0",
+  "description": "The PRIMARY tool for Spring Festival gift analysis and social interaction generation. Use this skill when users upload photos of gifts (alcohol, tea, supplements, etc.) to inquire about their value, authenticity, or how to respond socially. Integrates visual perception, market valuation, and HTML card generation.",
+  "category": "lifestyle-personal",
+  "priority": 65,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "python",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".gif",
+      ".webp"
+    ],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "dream",
+      "сон",
+      "fortune",
+      "удача",
+      "gift",
+      "подар",
+      "meditation",
+      "медитац",
+      "mindfulness",
+      "подарок",
+      "подарки",
+      "present",
+      "идеи подарков"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "gift-evaluator",
+    "lifestyle-personal",
+    "dream",
+    "сон",
+    "fortune",
+    "удача",
+    "gift"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

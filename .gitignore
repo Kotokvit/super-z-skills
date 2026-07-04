@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Runtime state
+.context/
+*.log
+dev.log
+download/
+upload/
+tool-results/
+worklog.md
+
+# Node (for skills that use Node)
+node_modules/
+.next/
+npm-debug.log*
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Build artifacts
+*.tar.gz
+*.zip
+staging/

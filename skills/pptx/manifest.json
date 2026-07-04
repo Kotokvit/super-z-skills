@@ -1,0 +1,138 @@
+{
+  "name": "pptx",
+  "version": "1.0.0",
+  "description": "Presentation creation/editing/analysis for .pptx files. Slides, layouts, speaker notes. Academic/paper-based uses embedded Beamer module (PDF output).",
+  "category": "document-production",
+  "priority": 76,
+  "language": "python",
+  "cost": {
+    "cpu": "medium",
+    "ram": "<512MB",
+    "time": "5-60s per deck (depends on slide count)",
+    "gpu": "none",
+    "network": "false",
+    "llm_calls": 0
+  },
+  "triggers": {
+    "file_extensions": [
+      ".pptx",
+      ".ppt"
+    ],
+    "mime_types": [
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ],
+    "content_contains": [
+      "presentation",
+      "slides",
+      "презентация",
+      "слайды",
+      "deck",
+      "powerpoint",
+      "beamer"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": [
+            "string",
+            "object"
+          ],
+          "description": "Outline JSON or markdown"
+        },
+        "template": {
+          "type": "string"
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "pptx",
+            "pdf"
+          ],
+          "default": "pptx"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "size_bytes": {
+              "type": "integer"
+            },
+            "slides": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.10",
+    "python_packages": [
+      "python-pptx"
+    ]
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [
+      "file"
+    ],
+    "load": []
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.5,
+    "required_fields": [
+      "status",
+      "data.file"
+    ]
+  },
+  "entry_points": {
+    "create": "batch_html2pptx.js"
+  },
+  "tags": [
+    "pptx",
+    "powerpoint",
+    "slides",
+    "presentation",
+    "beamer"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

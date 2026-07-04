@@ -1,0 +1,137 @@
+{
+  "name": "docx",
+  "version": "1.0.0",
+  "description": "Comprehensive .docx creation/editing/analysis. Reports, manuscripts, contracts, white papers. Tracked changes, comments, formatting preservation, text extraction.",
+  "category": "document-production",
+  "priority": 78,
+  "language": "python",
+  "cost": {
+    "cpu": "low",
+    "ram": "<256MB",
+    "time": "1-30s per document",
+    "gpu": "none",
+    "network": "false",
+    "llm_calls": 0
+  },
+  "triggers": {
+    "file_extensions": [
+      ".docx",
+      ".doc"
+    ],
+    "mime_types": [
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ],
+    "content_contains": [
+      "word",
+      "document",
+      "отчет",
+      "документ",
+      "manuscript",
+      "report",
+      "contract",
+      "white paper"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": [
+            "string",
+            "object"
+          ],
+          "description": "Markdown text or structured outline"
+        },
+        "template": {
+          "type": "string",
+          "description": "Optional .docx template path"
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "default": "docx"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "size_bytes": {
+              "type": "integer"
+            },
+            "pages": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.10",
+    "python_packages": [
+      "python-docx",
+      "lxml"
+    ]
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [
+      "file"
+    ],
+    "load": []
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.5,
+    "required_fields": [
+      "status",
+      "data.file"
+    ]
+  },
+  "entry_points": {
+    "create": "scripts/document.py"
+  },
+  "tags": [
+    "docx",
+    "word",
+    "document",
+    "report",
+    "manuscript"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}

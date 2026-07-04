@@ -1,0 +1,72 @@
+{
+  "name": "anti-pua",
+  "version": "1.0.0",
+  "description": "识别和分析PUA（Pickup Artist）及情感操纵行为的专业心理分析工具。具备人格分析、心理侧写、情感分析能力，能够识别情感操纵、煤气灯操纵、虐待等有毒关系模式，评估人格特质（如黑暗三人格、脆弱型自恋等），预测对方行为并给出具体的相处建议。当用户需要：分析对方言行动机、识别PUA/情感操纵行为、评估NPD（自恋型人格障碍）倾向、识别操纵行为、预测对方未来行为、寻求健康关系建议、分析黑暗三人格或光明三人格时使用此skill。",
+  "category": "lifestyle-personal",
+  "priority": 50,
+  "author": "Auto-registered by register_remaining_skills.py",
+  "language": "markdown",
+  "docs_only": false,
+  "entry_point": "scripts/run.py",
+  "triggers": {
+    "file_extensions": [],
+    "url_schemes": [],
+    "mime_types": [],
+    "content_contains": [
+      "dream",
+      "сон",
+      "fortune",
+      "удача",
+      "gift",
+      "подар",
+      "meditation",
+      "медитац",
+      "mindfulness",
+      "PUA",
+      "манипуляция",
+      "газлайтинг",
+      "toxic",
+      "токсичн"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "description": "User query or input path"
+        },
+        "json": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "json": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "tags": [
+    "anti-pua",
+    "lifestyle-personal",
+    "dream",
+    "сон",
+    "fortune",
+    "удача",
+    "gift"
+  ],
+  "entry_points": {
+    "default": "scripts/run.py"
+  }
+}

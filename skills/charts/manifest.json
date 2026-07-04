@@ -1,0 +1,167 @@
+{
+  "name": "charts",
+  "version": "1.0.0",
+  "description": "Professional chart and diagram creation. Data charts (bar/line/pie/scatter/heatmap) + structural diagrams (flowchart/mindmap/orgchart/architecture/ER). Routes to matplotlib/seaborn/ECharts/D3.js/Mermaid/Playwright+CSS by scene.",
+  "category": "data-visualization",
+  "priority": 70,
+  "language": "python",
+  "cost": {
+    "cpu": "low",
+    "ram": "<512MB",
+    "time": "1-15s per chart",
+    "gpu": "none",
+    "network": "false",
+    "llm_calls": 0
+  },
+  "triggers": {
+    "file_extensions": [
+      ".png",
+      ".svg",
+      ".pdf"
+    ],
+    "content_contains": [
+      "chart",
+      "graph",
+      "diagram",
+      "график",
+      "диаграмма",
+      "heatmap",
+      "flowchart",
+      "mindmap",
+      "visualization",
+      "визуализация"
+    ]
+  },
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "bar",
+            "line",
+            "pie",
+            "scatter",
+            "heatmap",
+            "flowchart",
+            "mindmap",
+            "orgchart",
+            "architecture",
+            "er",
+            "radar",
+            "candlestick",
+            "boxplot"
+          ]
+        },
+        "data": {
+          "type": [
+            "array",
+            "object"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "png",
+            "svg",
+            "pdf"
+          ],
+          "default": "png"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ]
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "error"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "format": {
+              "type": "string"
+            },
+            "size_bytes": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "required": [
+        "status",
+        "confidence"
+      ]
+    }
+  },
+  "requires": {
+    "python": ">=3.10",
+    "binaries": [
+      "node",
+      "playwright"
+    ],
+    "python_packages": [
+      "matplotlib",
+      "seaborn"
+    ]
+  },
+  "dependencies": [],
+  "memory": {
+    "save": [
+      "file"
+    ],
+    "load": []
+  },
+  "self_test": {
+    "doctor_script": "doctor.py"
+  },
+  "validator": {
+    "script": "validator.py",
+    "min_confidence": 0.5,
+    "required_fields": [
+      "status",
+      "data.file"
+    ]
+  },
+  "entry_points": {
+    "render": "setup.sh"
+  },
+  "tags": [
+    "chart",
+    "graph",
+    "diagram",
+    "visualization",
+    "matplotlib",
+    "echarts",
+    "mermaid",
+    "d3",
+    "charts"
+  ],
+  "entry_point": "scripts/run.py",
+  "docs_only": false
+}
