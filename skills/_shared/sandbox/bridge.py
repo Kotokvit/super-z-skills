@@ -5,27 +5,36 @@ This module provides the `call_sandbox_chat()` function that is a
 drop-in replacement for `call_z_ai_chat()` in llm_wrapper.py.
 
 When the user selects backend="sandbox", the wrapper calls this
-function instead of z-ai CLI. The function routes the query through
-the internal agent chain (planner→executor→reviewer→critic) and
-returns a text string in the same format as an LLM response.
+function instead of z-ai CLI. The function:
+1. Creates an LLMProvider (defaults to z-ai CLI as the host LLM)
+2. Creates a SandboxBackend with that provider
+3. Routes the query through the agent chain (planner→executor→reviewer→critic)
+4. Each agent calls the SAME LLM with a DIFFERENT role prompt
+5. Returns a text string in the same format as an LLM response
 
 Configuration:
     Set SUPER_Z_BACKEND env var to "sandbox" to activate.
     Or pass backend="sandbox" to run_skill().
     Or set backend = "sandbox" in config.toml.
+
+    Set SUPER_Z_HOST_LLM env var to override the host LLM command.
+    Default: z-ai CLI
 """
 from __future__ import annotations
 
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 # Import sandbox backend
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from sandbox.backend import SandboxBackend
+from sandbox.llm_provider import (
+    LLMProvider, HostLLMProvider, MockLLMProvider,
+)
 
 
 # ─── Module-level singleton ─────────────────────────────────────────────
@@ -34,32 +43,75 @@ _backend_instance: Optional[SandboxBackend] = None
 
 
 def get_backend(skill_context: Optional[Dict] = None,
+                llm_provider: Optional[LLMProvider] = None,
                 verbose: bool = False) -> SandboxBackend:
     """Get or create the sandbox backend singleton."""
     global _backend_instance
     if _backend_instance is None or skill_context:
+        # Determine the LLM provider
+        if llm_provider is None:
+            llm_provider = _detect_host_llm_provider()
+
         _backend_instance = SandboxBackend(
+            llm_provider=llm_provider,
             skill_context=skill_context or {},
             verbose=verbose,
         )
     return _backend_instance
 
 
+def _detect_host_llm_provider() -> LLMProvider:
+    """Detect which LLM provider to use for sandbox agents.
+
+    Priority:
+        1. SUPER_Z_HOST_LLM_CALLBACK env var (Python import path)
+        2. SUPER_Z_HOST_LLM env var (CLI command)
+        3. Default: z-ai CLI
+
+    Returns:
+        LLMProvider instance.
+    """
+    # Check for callback (Python import path like "mymodule.my_llm_func")
+    callback_path = os.environ.get("SUPER_Z_HOST_LLM_CALLBACK", "")
+    if callback_path:
+        try:
+            module_path, func_name = callback_path.rsplit(".", 1)
+            import importlib
+            module = importlib.import_module(module_path)
+            callback = getattr(module, func_name)
+            return HostLLMProvider(callback=callback)
+        except Exception as e:
+            sys.stderr.write(f"[bridge] Failed to load callback {callback_path}: {e}\n")
+
+    # Check for CLI command
+    cli_command = os.environ.get("SUPER_Z_HOST_LLM", "")
+    if cli_command:
+        return HostLLMProvider(cli_command=cli_command)
+
+    # Default: z-ai CLI
+    return HostLLMProvider.from_zai_cli()
+
+
 def call_sandbox_chat(system_prompt: str,
                       user_prompt: str,
                       skill_name: str = "",
                       skill_md: str = "",
-                      timeout_sec: int = 60,
-                      verbose: bool = False) -> Optional[str]:
+                      timeout_sec: int = 120,
+                      verbose: bool = False,
+                      llm_provider: Optional[LLMProvider] = None) -> Optional[str]:
     """Drop-in replacement for call_z_ai_chat() in llm_wrapper.py.
+
+    Instead of one LLM call, this runs the query through a chain of
+    LLM-powered agents, each with a different role-specific prompt.
 
     Args:
         system_prompt: The system prompt (usually SKILL.md content).
         user_prompt: The user's query.
         skill_name: Name of the skill being executed.
         skill_md: Full SKILL.md content for methodology extraction.
-        timeout_sec: Timeout (ignored in sandbox, agents are in-process).
+        timeout_sec: Timeout per LLM call (agents may make multiple calls).
         verbose: Print debug information.
+        llm_provider: Optional LLMProvider override.
 
     Returns:
         Text string (same format as LLM response), or None on failure.
@@ -72,6 +124,7 @@ def call_sandbox_chat(system_prompt: str,
 
         backend = get_backend(
             skill_context=skill_context,
+            llm_provider=llm_provider,
             verbose=verbose,
         )
 
@@ -92,7 +145,9 @@ def call_sandbox_chat(system_prompt: str,
         if result and verbose:
             stats = backend.stats()
             print(f"[sandbox] Stats: {stats['total_rounds']} rounds, "
-                  f"avg score: {stats['average_review_score']}", 
+                  f"avg score: {stats['average_review_score']}, "
+                  f"LLM calls: {stats['llm_calls']}, "
+                  f"provider: {stats['llm_provider']}",
                   file=sys.stderr)
 
         return result

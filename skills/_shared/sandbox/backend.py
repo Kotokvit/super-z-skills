@@ -1,89 +1,86 @@
 """
-backend.py — SandboxBackend: LLM-free internal agent orchestration.
+backend.py — SandboxBackend: Agent orchestration with LLM-powered agents.
 
-This is the core of the "pseudo-API" sandbox. It provides the same
-interface as external LLM providers (chat() returning text), but
-instead of calling OpenAI/Anthropic/z-ai, it distributes work
-between internal agents:
+This is the core of the sandbox. It provides the same interface as external
+LLM providers (chat() returning text), but instead of calling OpenAI/Anthropic
+once, it distributes work between LLM-powered internal agents:
 
     PlannerAgent → ExecutorAgent → ReviewerAgent → CriticAgent
 
-The cycle repeats if the Critic decides to "iterate" (up to MAX_ROUNDS).
+Each agent calls the SAME LLM with a DIFFERENT role-specific system prompt.
+This is exactly how multi-agent systems work in ChatGPT, Claude, Kimi 2.0.
 
-This backend is designed for the scenario where:
-1. The tool is embedded in an AI sandbox on a website
-2. The AI connects through its own agents on its own server
-3. No external LLM provider is needed
-4. The AI itself IS the "LLM" — it processes queries through role distribution
+The cycle repeats if the Critic decides to "iterate" (up to MAX_ROUNDS).
 
 Usage:
     from sandbox import SandboxBackend
+    from sandbox.llm_provider import HostLLMProvider
 
-    # As standalone
-    backend = SandboxBackend()
+    # With z-ai CLI as the host LLM
+    provider = HostLLMProvider.from_zai_cli()
+    backend = SandboxBackend(llm_provider=provider)
     result = backend.chat(
         messages=[{"role": "user", "content": "Write a blog post about AI"}]
     )
 
-    # With skill context (used by llm_wrapper.py)
-    backend = SandboxBackend(skill_context={
-        "skill_name": "blog-writer",
-        "skill_md": "# Blog Writer\\n\\nWrite engaging blog posts...",
-    })
-    result = backend.chat(
-        messages=[{"role": "user", "content": "напиши пост про ИИ"}]
-    )
+    # With a Python callback as the host LLM
+    def my_llm(system_prompt, user_prompt):
+        # Call your own LLM here
+        return "response text"
+
+    provider = HostLLMProvider(callback=my_llm)
+    backend = SandboxBackend(llm_provider=provider,
+                             skill_context={"skill_name": "blog-writer"})
 
     # Via CLI
     super-z --run blog-writer "напиши пост" --backend sandbox
-
-Integration with llm_wrapper.py:
-    The backend replaces call_z_ai_chat() when the user selects
-    backend="sandbox". It returns the same type of result — a text
-    string that the wrapper formats as a Pattern 1 brief.
 """
 from __future__ import annotations
 
 import json
+import sys
 import time
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from sandbox.agents import (
-    Agent,
     PlannerAgent,
     ExecutorAgent,
     ReviewerAgent,
     CriticAgent,
     AgentMessage,
-    AgentRole,
 )
+from sandbox.llm_provider import LLMProvider, HostLLMProvider, MockLLMProvider
 
 
 # ─── Sandbox Backend ────────────────────────────────────────────────────
 
 class SandboxBackend:
-    """LLM-free backend that uses internal agent orchestration.
+    """LLM-powered backend that uses internal agent orchestration.
 
-    This is NOT a mock — it performs real work by decomposing queries,
-    generating structured content from skill methodology, reviewing
-    quality, and iterating until the critic accepts or max rounds reached.
+    Each agent calls the LLM with a role-specific system prompt,
+    producing real reasoning and content instead of template strings.
     """
 
     MAX_ROUNDS = 3  # maximum planner→executor→reviewer→critic cycles
 
-    def __init__(self, skill_context: Optional[Dict] = None,
+    def __init__(self, llm_provider: Optional[LLMProvider] = None,
+                 skill_context: Optional[Dict] = None,
                  max_rounds: int = MAX_ROUNDS,
                  verbose: bool = False):
         self.skill_context = skill_context or {}
         self.max_rounds = max_rounds
         self.verbose = verbose
 
-        # Create agent instances
-        self.planner = PlannerAgent(skill_context)
-        self.executor = ExecutorAgent(skill_context)
-        self.reviewer = ReviewerAgent(skill_context)
-        self.critic = CriticAgent(skill_context)
+        # Set up LLM provider
+        # Default: use z-ai CLI as the host LLM (same LLM, different roles)
+        self.llm_provider = llm_provider or HostLLMProvider.from_zai_cli()
+
+        # Create agent instances — each gets the SAME LLM provider
+        # but uses a DIFFERENT system prompt
+        self.planner = PlannerAgent(self.llm_provider, skill_context)
+        self.executor = ExecutorAgent(self.llm_provider, skill_context)
+        self.reviewer = ReviewerAgent(self.llm_provider, skill_context)
+        self.critic = CriticAgent(self.llm_provider, skill_context)
 
         # Execution trace for debugging
         self.trace: List[Dict] = []
@@ -126,27 +123,35 @@ class SandboxBackend:
             "query": query[:200],
             "result_length": len(result) if result else 0,
             "elapsed_sec": round(elapsed, 2),
-            "rounds": len([t for t in self.trace if t.get("round")]),
+            "llm_calls": self.llm_provider.call_count
+                         if hasattr(self.llm_provider, 'call_count')
+                         else -1,
         })
 
         if self.verbose:
-            print(f"[sandbox] Completed in {elapsed:.2f}s, "
-                  f"result: {len(result) if result else 0} chars")
+            provider_name = (self.llm_provider.name()
+                           if hasattr(self.llm_provider, 'name')
+                           else "unknown")
+            print(f"[sandbox] Completed in {elapsed:.2f}s via {provider_name}, "
+                  f"result: {len(result) if result else 0} chars",
+                  file=sys.stderr)
 
         return result
 
     def _run_agent_loop(self, query: str) -> str:
         """Run the planner→executor→reviewer→critic loop.
 
-        Returns the final text output.
+        Each agent calls the LLM with its role-specific system prompt.
+        The loop continues until the critic accepts or max rounds reached.
         """
         current_content = ""
 
         for round_num in range(1, self.max_rounds + 1):
             if self.verbose:
-                print(f"[sandbox] Round {round_num}/{self.max_rounds}")
+                print(f"[sandbox] Round {round_num}/{self.max_rounds}",
+                      file=sys.stderr)
 
-            # Step 1: Planner
+            # Step 1: Planner calls LLM with PLANNER_SYSTEM_PROMPT
             plan_msg = AgentMessage(
                 role="user",
                 action="start_plan",
@@ -154,13 +159,13 @@ class SandboxBackend:
             )
             plan_result = self.planner.process(plan_msg)
 
-            # Step 2: Executor
+            # Step 2: Executor calls LLM with EXECUTOR_SYSTEM_PROMPT
             exec_result = self.executor.process(plan_result)
 
-            # Step 3: Reviewer
+            # Step 3: Reviewer calls LLM with REVIEWER_SYSTEM_PROMPT
             review_result = self.reviewer.process(exec_result)
 
-            # Step 4: Critic
+            # Step 4: Critic calls LLM with CRITIC_SYSTEM_PROMPT
             critic_result = self.critic.process(review_result)
 
             # Record round trace
@@ -180,12 +185,6 @@ class SandboxBackend:
             decision = critic_result.payload.get("decision", "accept")
 
             if decision == "accept":
-                # Apply review suggestions if content needs polish
-                if review_result.payload.get("average_score", 0) < 0.8:
-                    current_content = self._apply_polish(
-                        current_content,
-                        review_result.payload.get("suggestions", []),
-                    )
                 break
 
             elif decision == "reject":
@@ -194,8 +193,10 @@ class SandboxBackend:
                     query,
                     critic_result.payload.get("reason", ""),
                     review_result.payload.get("issues", []),
+                    critic_result.payload.get("focus_areas", []),
                 )
                 current_content = ""
+                self.critic.iteration = 0  # reset for new attempt
                 continue
 
             elif decision == "iterate":
@@ -204,6 +205,7 @@ class SandboxBackend:
                     query,
                     "; ".join(review_result.payload.get("suggestions", [])),
                     review_result.payload.get("issues", []),
+                    critic_result.payload.get("focus_areas", []),
                 )
                 continue
 
@@ -214,7 +216,6 @@ class SandboxBackend:
         for msg in reversed(messages):
             if msg.get("role") == "user":
                 return msg.get("content", "")
-        # Fallback: return last message content
         if messages:
             return messages[-1].get("content", "")
         return ""
@@ -228,34 +229,23 @@ class SandboxBackend:
 
     def _refresh_agents(self):
         """Recreate agents with updated skill context."""
-        self.planner = PlannerAgent(self.skill_context)
-        self.executor = ExecutorAgent(self.skill_context)
-        self.reviewer = ReviewerAgent(self.skill_context)
-        self.critic = CriticAgent(self.skill_context)
+        self.planner = PlannerAgent(self.llm_provider, self.skill_context)
+        self.executor = ExecutorAgent(self.llm_provider, self.skill_context)
+        self.reviewer = ReviewerAgent(self.llm_provider, self.skill_context)
+        self.critic = CriticAgent(self.llm_provider, self.skill_context)
 
     def _inject_feedback(self, query: str, reason: str,
-                         issues: List[str]) -> str:
+                         issues: List[str],
+                         focus_areas: List[str] = None) -> str:
         """Add feedback from reviewer/critic to the query for next round."""
-        feedback = f"[FEEDBACK: {reason}]"
+        parts = [query]
+        if reason:
+            parts.append(f"[FEEDBACK: {reason}]")
         if issues:
-            feedback += f" [ISSUES: {'; '.join(issues[:3])}]"
-        return f"{query} {feedback}"
-
-    def _apply_polish(self, content: str,
-                      suggestions: List[str]) -> str:
-        """Apply minor polish to accepted content."""
-        if not content:
-            return content
-
-        # Ensure content ends cleanly
-        content = content.rstrip()
-
-        # Add quality notice if suggestions exist
-        if suggestions and len(content) > 50:
-            content += "\n\n---\nПримечание: результат сгенерирован в режиме " \
-                       "песочницы (sandbox) без внешнего LLM."
-
-        return content
+            parts.append(f"[ISSUES: {'; '.join(issues[:3])}]")
+        if focus_areas:
+            parts.append(f"[FOCUS: {'; '.join(focus_areas[:3])}]")
+        return " ".join(parts)
 
     def stats(self) -> Dict:
         """Return execution statistics."""
@@ -266,9 +256,19 @@ class SandboxBackend:
         if scores:
             avg_score = sum(scores) / len(scores)
 
+        llm_calls = -1
+        if hasattr(self.llm_provider, 'call_count'):
+            llm_calls = self.llm_provider.call_count
+
+        provider_name = "unknown"
+        if hasattr(self.llm_provider, 'name'):
+            provider_name = self.llm_provider.name()
+
         return {
             "total_queries": len([t for t in self.trace if t.get("query")]),
             "total_rounds": total_rounds,
             "average_review_score": round(avg_score, 2),
-            "trace": self.trace[-10:],  # last 10 entries
+            "llm_calls": llm_calls,
+            "llm_provider": provider_name,
+            "trace": self.trace[-10:],
         }
