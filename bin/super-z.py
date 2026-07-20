@@ -160,16 +160,21 @@ def cmd_run_skill(args) -> int:
         print(f"{RED}Skill not found: {args.skill}{RESET}")
         return 1
     run_py = skill_dir / "scripts" / "run.py"
+    backend_flag = getattr(args, 'backend', None)
     if run_py.exists():
-        result = subprocess.run([PYTHON, str(run_py), args.query])
+        cmd = [PYTHON, str(run_py), args.query]
+        if backend_flag:
+            cmd.extend(["--backend", backend_flag])
+        result = subprocess.run(cmd)
         return result.returncode
     llm_wrapper = SKILLS_DIR / "_shared" / "llm_wrapper.py"
     if llm_wrapper.exists():
         print(f"{YELLOW}Skill '{args.skill}' has no executable wrapper. "
               f"Using LLM wrapper directly.{RESET}")
-        result = subprocess.run(
-            [PYTHON, str(llm_wrapper), "--skill", args.skill, "--query", args.query]
-        )
+        cmd = [PYTHON, str(llm_wrapper), "--skill", args.skill, "--query", args.query]
+        if backend_flag:
+            cmd.extend(["--backend", backend_flag])
+        result = subprocess.run(cmd)
         return result.returncode
     print(f"{RED}No run.py or llm_wrapper.py found{RESET}")
     return 1
@@ -357,6 +362,9 @@ def main() -> int:
                         help="enqueue + wait for brief (agent hook)")
     parser.add_argument("--daemon", metavar="ACTION",
                         help="start|stop|restart|status|foreground")
+    parser.add_argument("--backend", default=None,
+                        choices=["zai_cli", "sandbox", "mock"],
+                        help="LLM backend: zai_cli (default), sandbox (internal agents), mock (placeholder)")
     args = parser.parse_args()
 
     if args.help:
@@ -371,12 +379,15 @@ def main() -> int:
         return cmd_watch()
     if args.run:
         # --run SKILL "query..."
-        query = " ".join(args.message) if args.message else ""
-        # Use a simple namespace
-        class _Args:
-            skill = args.run
-            query = query
-        return cmd_run_skill(_Args())
+        query_text = " ".join(args.message) if args.message else ""
+        # Use a simple namespace instead of inner class (avoids closure issue)
+        import types
+        run_args = types.SimpleNamespace(
+            skill=args.run,
+            query=query_text,
+            backend=args.backend,
+        )
+        return cmd_run_skill(run_args)
     if args.daemon:
         return cmd_daemon(args.daemon)
     if args.enqueue:

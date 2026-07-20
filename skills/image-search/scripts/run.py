@@ -11,7 +11,6 @@ SKILL_DIR = Path(__file__).resolve().parent.parent
 
 
 def main():
-    query = sys.argv[1] if len(sys.argv) > 1 else None
     if not query or query == "-":
         query = sys.stdin.read().strip()
     if not query:
@@ -75,4 +74,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("query", nargs="?", default=None, help="User query")
+    ap.add_argument("--backend", default=None,
+                    choices=["zai_cli", "sandbox", "mock"],
+                    help="LLM backend: zai_cli (default), sandbox (internal agents), mock (placeholder)")
+    args = ap.parse_args()
+    result = run_skill("image-search", user_query=args.query, backend=args.backend)
+    sys.exit(0 if result.get("status") == "success" else 1)
