@@ -58,7 +58,7 @@ except Exception as _e:
 CACHE_DIR = Path("/tmp/doc_triage_cache")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-SUPPORTED_EXTS = {".pdf", ".docx", ".doc", ".txt", ".md", ".rtf"}
+SUPPORTED_EXTS = {".pdf", ".docx", ".doc", ".txt", ".md", ".rtf", ".tex", ".latex", ".html", ".csv", ".json", ".xml", ".log"}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ def extract_text(file_path: str, max_pages: int = 100) -> Tuple[str, Dict[str, A
             except Exception:
                 pass
         return "", {"method": "none", "error": ".doc format requires antiword (not installed)"}
-    if ext in (".txt", ".md", ".rtf"):
+    if ext in (".txt", ".md", ".rtf", ".tex", ".latex", ".html", ".csv", ".json", ".xml", ".log"):
         return extract_text_from_txt(file_path)
     return "", {"method": "none", "error": f"unsupported extension: {ext}"}
 
@@ -295,7 +295,7 @@ def triage(input_value: str, max_pages: int = 100,
         except Exception:
             stdin_text = ""
         # Find first path that exists and has supported extension
-        for m in re.finditer(r'[\w/\\\-\.]+\.(?:pdf|docx?|txt|md|rtf)', stdin_text, re.IGNORECASE):
+        for m in re.finditer(r'[\w/\\\-\.]+\.(?:pdf|docx?|txt|md|rtf|tex|latex|html?|csv|json|xml)', stdin_text, re.IGNORECASE):
             candidate = m.group(0)
             if Path(candidate).exists():
                 file_path = candidate
@@ -306,7 +306,7 @@ def triage(input_value: str, max_pages: int = 100,
         file_path = input_value
     else:
         # Maybe input is a message containing a path
-        for m in re.finditer(r'[\w/\\\-\.]+\.(?:pdf|docx?|txt|md|rtf)', input_value, re.IGNORECASE):
+        for m in re.finditer(r'[\w/\\\-\.]+\.(?:pdf|docx?|txt|md|rtf|tex|latex|html?|csv|json|xml)', input_value, re.IGNORECASE):
             candidate = m.group(0)
             if Path(candidate).exists():
                 file_path = candidate
