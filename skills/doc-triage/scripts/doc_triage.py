@@ -184,10 +184,34 @@ def extract_text(file_path: str, max_pages: int = 100) -> Tuple[str, Dict[str, A
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Summarize via topic_local (LOCAL, no LLM) with poler-toolkit fallback
+# Summarize via POLER Core (ЯДРО СМЫСЛА) with fallbacks
 # ─────────────────────────────────────────────────────────────────────
 
-# Try to import topic_local directly (same-process, faster)
+# PRIORITY: PolerCore > topic_local > ingest.py
+# PolerCore = poler_enhanced (ε/resonance) + scientific themes
+# topic_local = TF-IDF clustering (fallback)
+# ingest.py = subprocess (last resort)
+
+# Try to import PolerCore from _shared/sandbox (same repo)
+_POLER_CORE_DIR = SKILL_DIR.parent / "_shared" / "sandbox"
+if str(_POLER_CORE_DIR) not in sys.path:
+    sys.path.insert(0, str(_POLER_CORE_DIR))
+
+# Also check /home/z/my-project/scripts as fallback
+_MY_SCRIPTS = Path("/home/z/my-project/scripts")
+if _MY_SCRIPTS.exists() and str(_MY_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_MY_SCRIPTS))
+
+try:
+    from poler_core_integration import PolerCore as _PolerCore
+    _POLER_CORE = _PolerCore()
+    _HAS_POLER_CORE = True
+except Exception as _e:
+    sys.stderr.write(f"[doc-triage] PolerCore unavailable: {_e}\n")
+    _HAS_POLER_CORE = False
+    _POLER_CORE = None
+
+# Fallback: topic_local
 _TOPIC_LOCAL_DIR = SKILL_DIR.parent / "poler-toolkit" / "scripts"
 if str(_TOPIC_LOCAL_DIR) not in sys.path:
     sys.path.insert(0, str(_TOPIC_LOCAL_DIR))
@@ -201,14 +225,44 @@ except Exception as _e:
 
 
 def summarize_text(text: str, file_path: str = "") -> Tuple[Dict[str, Any], float]:
-    """Local-first summarization: topic_local TF-IDF (no LLM).
-    Falls back to poler-toolkit ingest.py if topic_local unavailable."""
+    """Local-first summarization через POLER ЯДРО СМЫСЛА.
+    
+    Приоритет:
+      1. PolerCore (ε-энергия + резонанс + научные темы) — 0 LLM
+      2. topic_local (TF-IDF кластеризация) — 0 LLM
+      3. ingest.py (subprocess) — last resort
+    """
     if not text or len(text) < 20:
         return {"theme": None, "keywords": [], "fallback": True}, 0.0
 
     t0 = time.time()
 
-    # ── PRIMARY: topic_local (in-process, 0 LLM tokens) ──
+    # ── PRIMARY: PolerCore (ε/resonance + научные темы, 0 LLM) ──
+    if _HAS_POLER_CORE:
+        try:
+            result = _POLER_CORE.understand(text, source=file_path)
+            veins = result.veins[:5] if result.veins else []
+            return {
+                "theme": result.theme if result.theme != "general" else None,
+                "secondary_themes": result.secondary_themes,
+                "keywords": result.keywords[:10],
+                "clusters_count": len(result.veins),
+                "veins": [
+                    {"keyword": v.keyword, "epsilon": round(v.epsilon, 2),
+                     "resonance": round(v.resonance, 2),
+                     "windows_count": v.windows_count}
+                    for v in veins
+                ],
+                "total_epsilon": round(result.total_epsilon, 2),
+                "avg_epsilon": round(result.avg_epsilon, 2),
+                "peak_resonance": round(result.peak_resonance, 2),
+                "method": result.method,
+                "fallback": False,
+            }, time.time() - t0
+        except Exception as e:
+            sys.stderr.write(f"[doc-triage] PolerCore error: {e}\n")
+
+    # ── FALLBACK 1: topic_local (in-process, 0 LLM tokens) ──
     if _HAS_TOPIC_LOCAL and file_path:
         try:
             result = _topic_local_detect(file_path)
@@ -232,7 +286,7 @@ def summarize_text(text: str, file_path: str = "") -> Tuple[Dict[str, Any], floa
         except Exception as e:
             sys.stderr.write(f"[doc-triage] topic_local error: {e}\n")
 
-    # ── FALLBACK: poler-toolkit ingest.py (may call LLM) ──
+    # ── FALLBACK 2: poler-toolkit ingest.py (may call LLM) ──
     try:
         # Pipe text via stdin
         cmd = [sys.executable, str(POLER_INGEST), "-", "--json"]
@@ -262,7 +316,7 @@ def summarize_text(text: str, file_path: str = "") -> Tuple[Dict[str, Any], floa
 
 def format_brief_text(file_path: str, text: str, summary: Dict[str, Any],
                       extraction_meta: Dict[str, Any]) -> str:
-    """3-5 line compact brief text."""
+    """3-7 line compact brief text с POLER венами."""
     lines = []
     p = Path(file_path)
     name = p.name
@@ -276,16 +330,32 @@ def format_brief_text(file_path: str, text: str, summary: Dict[str, Any],
                  + (" (OCR)" if ocr else ""))
     theme = summary.get("theme")
     kws = summary.get("keywords") or []
+    secondary = summary.get("secondary_themes", [])
+    
     if theme or kws:
         kw_str = ", ".join(kws[:5]) if kws else "—"
-        lines.append(f"- theme: {theme or 'n/a'}, top keywords: {kw_str}")
+        theme_str = theme or 'n/a'
+        if secondary:
+            theme_str += f" [{', '.join(secondary)}]"
+        lines.append(f"- theme: {theme_str}, top keywords: {kw_str}")
     else:
         lines.append(f"- theme: n/a, first 200 chars: {text[:200]!r}")
+    
+    # Вены — навигационные точки с ε-энергией
+    veins = summary.get("veins", [])
+    if veins:
+        vein_str = "; ".join(
+            f"{v['keyword']}(ε={v['epsilon']:.0f})"
+            for v in veins[:4]
+        )
+        total_eps = summary.get("total_epsilon", 0)
+        lines.append(f"- 🩸 veins: {vein_str} | Σε={total_eps:.0f}")
+    
     if kws:
         q1 = f"что документ говорит про {kws[0]}?"
         q2 = f"какие выводы про {kws[1]}?" if len(kws) > 1 else "каковы основные выводы?"
         lines.append(f"- suggested questions: \"{q1}\", \"{q2}\"")
-    lines.append("→ agent has full text context, can answer directly")
+    lines.append("→ agent has full text + POLER veins context, can navigate and answer directly")
     return "\n".join(lines)
 
 

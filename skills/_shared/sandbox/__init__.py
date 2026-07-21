@@ -116,26 +116,39 @@ except ImportError:
     _HAS_SUPER_Z_LLM_CALLBACK = False
 
 # v2 — Observer + POLER (token-efficient)
-from sandbox_v2 import SandboxV2, Observer, PolerContextExtractor
+try:
+    from sandbox_v2 import SandboxV2, Observer, PolerContextExtractor
+except ImportError:
+    _HAS_SANDBOX_V2 = False
+else:
+    _HAS_SANDBOX_V2 = True
 
 # v1 — Legacy 4-agent chain (kept for backward compatibility)
-from backend import SandboxBackend
-from agents import (
-    Agent,
-    PlannerAgent,
-    ExecutorAgent,
-    ReviewerAgent,
-    CriticAgent,
-    AgentMessage,
-    AgentRole,
-)
+try:
+    from backend import SandboxBackend
+    from agents import (
+        Agent,
+        PlannerAgent,
+        ExecutorAgent,
+        ReviewerAgent,
+        CriticAgent,
+        AgentMessage,
+        AgentRole,
+    )
+    _HAS_V1_AGENTS = True
+except ImportError:
+    _HAS_V1_AGENTS = False
 
 # Shared components
-from llm_provider import (
-    LLMProvider,
-    HostLLMProvider,
-    MockLLMProvider,
-)
+try:
+    from llm_provider import (
+        LLMProvider,
+        HostLLMProvider,
+        MockLLMProvider,
+    )
+    _HAS_LLM_PROVIDER = True
+except ImportError:
+    _HAS_LLM_PROVIDER = False
 
 __all__ = [
     # v3 (local-first, default)
