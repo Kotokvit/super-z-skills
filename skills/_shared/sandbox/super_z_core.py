@@ -1,1183 +1,588 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-super_z_core.py — Super Z Core: Local-First Routing Engine
-=========================================================
+Super Z Core — Нервная Система
+================================
+Архитектура Super Z:
+  poler_enhanced.py = Ядро Смысла — превращает данные в знание
+  super_z_core.py   = Нервная Система — маршрутизация задач
+  super_z_bridge.py  = Руки и Глаза — взаимодействие с миром
+  grab              = Пылесос — сбор данных (без понимания)
 
-THE PROBLEM IT SOLVES:
-    When an AI (GLM, Claude, GPT) runs inside a platform, it ALREADY has:
-    - File system access (Read, Write)
-    - Terminal access (Bash)
-    - Built-in reasoning (it IS an LLM)
+ПРИНЦИП: ЛЮБОЙ навык проходит через Ядро Смысла ПЕРЕД LLM.
+  1. Задача → POLER Core (понимание) → Маршрутизация
+  2. Если POLER Core дал достаточно → Local-First (без LLM)
+  3. Если нужен LLM → обогащённый контекст от POLER Core
 
-    But the old architecture always called external `z-ai CLI` as the default
-    LLM provider — even from inside an AI that could do the work itself.
-    This is like hiring a courier to deliver a message to your neighbor
-    when you're already standing at their door.
+МАРШРУТИЗАЦИЯ:
+  Local → POLER Core → [достаточно?] → Ответ
+                            ↓ НЕТ
+                       → AI (LLM) → Ответ
+                            ↓ НЕТ
+                       → CLI (команда) → Ответ
+                            ↓ НЕТ
+                       → Human (ручной разбор)
 
-THE SOLUTION — "Local First" Routing:
-    1. Check: Can this task be done locally? (Python/Bash, no LLM needed)
-       → YES → Execute directly. Free. Instant.
-    2. Check: Are we running inside an AI platform? (callback available)
-       → YES → Use the AI's own LLM callback. Same quality, zero extra cost.
-    3. Check: Is an external CLI available? (z-ai, claude, gpt)
-       → YES → Use it. Paid, but only when truly necessary.
-    4. Fallback: Return None. Task cannot be completed.
-
-CLASSIFICATION OF SKILLS:
-    LOCAL_SKILLS   — Can be done with Python/Bash alone (file ops, text
-                     processing, analysis, parsing, data transformation)
-    AI_SKILLS      — Need LLM reasoning (writing, planning, reviewing)
-    EXTERNAL_SKILLS — Need external APIs (web-search, image-generation,
-                      TTS, ASR, VLM)
-
-ENVIRONMENT DETECTION:
-    The module auto-detects its runtime environment:
-    - "llm_native"  → Running inside an AI (callback available)
-    - "hybrid"      → Inside AI + CLI available
-    - "local_cli"   → Running standalone with z-ai CLI
-    - "standalone"  → No AI, no CLI (local skills only)
-
-SUPPORTED MODULES (v2 architecture):
-    super_z_config.py      → Environment auto-detection
-    super_z_bridge.py      → AI native tool adapter
-    super_z_llm_callback.py → Free LLM reasoning provider
-
-USAGE:
-    from super_z_core import SuperZCore
-
-    core = SuperZCore()
-
-    # Auto-detect environment, run with optimal routing
-    result = core.run_skill(
-        skill_name="blog-writer",
-        user_query="Write about AI",
-        skill_md=skill_md_text,
-    )
-
-    # Or with explicit callback (from AI platform)
-    core = SuperZCore(llm_callback=my_llm_function)
-    result = core.run_skill(...)
-
-    # Check what environment was detected
-    env = core.detect_environment()
-    print(env)  # {"type": "llm_native", "provider": "host_callback", ...}
-
-Author: Super-Z team + Qwen Coder, 2026-07-21
-Version: 2.0.0
+ПРОТОТИП: Python → миграция на Rust/Zig/C
+  - Маршрутизатор → Rust: match + async (tokio)
+  - POLER Core вызов → Zig: zero-copy FFI
+  - CLI bridge → C: POSIX execve
 """
-from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
 import sys
+import subprocess
 import time
-from dataclasses import dataclass, field, asdict
-from enum import Enum
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import List, Dict, Optional, Any, Callable
 
-# ── Import new v2 modules (super_z_config, super_z_bridge, super_z_llm_callback) ──
-try:
-    from super_z_config import (
-        EnvironmentType as _ConfigEnvType,
-        EnvironmentInfo as _ConfigEnvInfo,
-        SkillCategory as _ConfigSkillCategory,
-        detect_environment as _config_detect_environment,
-        classify_skill as _config_classify_skill,
-        get_routing_decision as _config_get_routing_decision,
-        LOCAL_SKILLS as _CONFIG_LOCAL_SKILLS,
-        EXTERNAL_SKILLS as _CONFIG_EXTERNAL_SKILLS,
+# ═══════════════════════════════════════════════════════════════════════
+# ИМПОРТ ЯДРА СМЫСЛА
+# ═══════════════════════════════════════════════════════════════════════
+# POLER[Ψ] — обязательная зависимость. Без него — мы просто диспетчер.
+
+POLER_CORE_PATH = os.environ.get(
+    'POLER_CORE_PATH',
+    str(Path(__file__).parent / 'poler_enhanced_v3.py')
+)
+
+def _import_poler_core():
+    """Импортирует POLER Core. FATAL если не найден."""
+    try:
+        # Сначала пробуем пакетный импорт
+        from poler_enhanced_v3 import PolerAnalyzer, build_veins, auto_discover_themes
+        return PolerAnalyzer, build_veins, auto_discover_themes
+    except ImportError:
+        pass
+    
+    # Пробуем загрузить по пути
+    core_path = Path(POLER_CORE_PATH)
+    if core_path.exists():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("poler_enhanced_v3", str(core_path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.PolerAnalyzer, mod.build_veins, mod.auto_discover_themes
+    
+    raise ImportError(
+        f"POLER Core не найден: {POLER_CORE_PATH}\n"
+        "Ядро Смысла — обязательный компонент. Без него маршрутизация невозможна."
     )
-    _HAS_SUPER_Z_CONFIG = True
-except ImportError:
-    _HAS_SUPER_Z_CONFIG = False
 
-try:
-    from super_z_bridge import (
-        AIBridge,
-        get_bridge as _get_bridge,
-        bridge_execute_poler as _bridge_execute_poler,
-        bridge_execute_skill as _bridge_execute_skill,
-    )
-    _HAS_SUPER_Z_BRIDGE = True
-except ImportError:
-    _HAS_SUPER_Z_BRIDGE = False
+# Ленивый импорт — загружаем при первом использовании
+_poler = None
 
-try:
-    from super_z_llm_callback import (
-        LLMCallbackProvider,
-        get_callback_provider as _get_callback_provider,
-        execute_with_callback as _execute_with_callback,
-        execute_poler as _execute_poler,
-        create_llm_callback_for_core as _create_llm_callback_for_core,
-    )
-    _HAS_SUPER_Z_LLM_CALLBACK = True
-except ImportError:
-    _HAS_SUPER_Z_LLM_CALLBACK = False
+def get_poler_core():
+    """Возвращает POLER Core (ленивая загрузка)."""
+    global _poler
+    if _poler is None:
+        PolerAnalyzer, build_veins, auto_discover_themes = _import_poler_core()
+        _poler = {
+            'analyzer_class': PolerAnalyzer,
+            'build_veins': build_veins,
+            'auto_discover_themes': auto_discover_themes,
+            'analyzer': PolerAnalyzer(),
+        }
+    return _poler
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Skill Classification — which skills need what?
-# ═══════════════════════════════════════════════════════════════════════════
-# NOTE: When super_z_config is available, classification is delegated there.
-# These local definitions are kept for backward compatibility when
-# super_z_config is not importable.
-
-class SkillCategory(Enum):
-    """Classification of skill resource requirements."""
-    LOCAL = "local"          # Pure Python/Bash, no LLM needed
-    AI_REASONING = "ai"      # Needs LLM reasoning (writing, analysis)
-    EXTERNAL_API = "external"  # Needs external API (web-search, image-gen, TTS)
-
-
-# Skills that can be executed with Python/Bash alone — FREE
-LOCAL_SKILLS: set = {
-    "poler-psi",        # POLER text analysis engine
-    "poler-toolkit",    # POLER toolkit utilities
-    "doc-triage",       # Document classification (rule-based)
-    "cheat-sheet",      # Template generation (structured output)
-    "version-management",  # Version tracking (file ops)
-    "pdf-ocr",          # OCR extraction (local tool)
-    "file-ops",         # File operations (read/write/transform)
-    "text-analysis",    # Text analysis (regex, counters)
-    "data-transform",   # Data transformation (JSON, CSV)
-}
-
-# Skills that NEED external APIs — always require CLI/network
-EXTERNAL_SKILLS: set = {
-    "web-search",           # Internet search
-    "image-generation",     # AI image generation
-    "image-search",         # Image search API
-    "image-edit",           # AI image editing
-    "ASR",                  # Speech-to-text
-    "TTS",                  # Text-to-speech
-    "VLM",                  # Vision-language model
-    "video-understand",     # Video analysis
-    "video-generation",     # Video generation
-    "agent-browser",        # Browser automation (network)
-    "web-reader",           # Web page extraction
-    "LLM",                  # Direct LLM chat
-}
-
-# Sync LOCAL_SKILLS/EXTERNAL_SKILLS with super_z_config if available
-if _HAS_SUPER_Z_CONFIG:
-    LOCAL_SKILLS = LOCAL_SKILLS | _CONFIG_LOCAL_SKILLS
-    EXTERNAL_SKILLS = EXTERNAL_SKILLS | _CONFIG_EXTERNAL_SKILLS
-
-# Everything else = AI_REASONING (needs LLM but not external API)
-# This includes: blog-writer, contentanalysis, finance, design, etc.
-
-
-def classify_skill(skill_name: str) -> SkillCategory:
-    """Classify a skill by its resource requirements.
-
-    Delegates to super_z_config.classify_skill() when available,
-    otherwise uses local classification logic.
-
-    Args:
-        skill_name: Name of the skill.
-
-    Returns:
-        SkillCategory indicating what resources the skill needs.
-    """
-    # Delegate to super_z_config if available (maps LOCAL_EXEC → LOCAL)
-    if _HAS_SUPER_Z_CONFIG:
-        config_category = _config_classify_skill(skill_name)
-        # Map config categories to core categories
-        if config_category == _ConfigSkillCategory.LOCAL_EXEC:
-            return SkillCategory.LOCAL
-        if config_category == _ConfigSkillCategory.EXTERNAL_API:
-            return SkillCategory.EXTERNAL_API
-        return SkillCategory.AI_REASONING
-
-    # Fallback: local classification
-    if skill_name in LOCAL_SKILLS:
-        return SkillCategory.LOCAL
-    if skill_name in EXTERNAL_SKILLS:
-        return SkillCategory.EXTERNAL_API
-    return SkillCategory.AI_REASONING
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Environment Detection — where are we running?
-# ═══════════════════════════════════════════════════════════════════════════
-# NOTE: When super_z_config is available, detection is delegated there
-# for richer environment info (HYBRID mode, AI platform heuristics, etc.)
-
-class EnvironmentType(Enum):
-    """Runtime environment types."""
-    AI_PLATFORM = "ai_platform"    # Inside an AI (GLM, Claude, GPT)
-    LOCAL_CLI = "local_cli"        # Standalone with z-ai CLI available
-    STANDALONE = "standalone"      # No AI, no CLI (local skills only)
-
+# ═══════════════════════════════════════════════════════════════════════
+# ТИПЫ ДАННЫХ
+# ═══════════════════════════════════════════════════════════════════════
 
 @dataclass
-class EnvironmentInfo:
-    """Detected environment details."""
-    type: EnvironmentType = EnvironmentType.STANDALONE
-    has_callback: bool = False       # LLM callback available?
-    has_zai_cli: bool = False        # z-ai CLI binary found?
-    has_other_cli: bool = False      # Other CLI (claude, gpt) found?
-    cli_path: str = ""               # Path to available CLI
-    provider_name: str = "none"      # Name of the detected provider
-    hostname: str = ""               # Machine hostname
-    is_container: bool = False       # Running in Docker/container?
+class Task:
+    """Задача для маршрутизации."""
+    task_id: str
+    input_text: str = ""
+    input_files: List[str] = field(default_factory=list)
+    skill_name: str = ""
+    intent: str = ""  # auto-detected via POLER Core
+    domain: str = ""  # auto-detected via POLER Core
+    confidence: float = 0.0
+    context: Dict = field(default_factory=dict)
+    
+    # Результат POLER Core
+    poler_result: Optional[Dict] = None
+    poler_veins: Optional[Dict] = None
 
-    def to_dict(self) -> Dict:
-        return asdict(self)
+@dataclass 
+class RouteDecision:
+    """Решение о маршрутизации."""
+    route: str  # 'local' | 'ai' | 'cli' | 'human'
+    reason: str
+    confidence: float
+    poler_insights: Dict = field(default_factory=dict)
+    estimated_cost: str = "free"  # 'free' | 'low' | 'medium' | 'high'
 
+@dataclass
+class TaskResult:
+    """Результат выполнения задачи."""
+    task_id: str
+    route: str
+    success: bool
+    data: Dict = field(default_factory=dict)
+    duration_ms: float = 0.0
+    poler_context: Dict = field(default_factory=dict)
 
-def detect_environment(
-    llm_callback: Optional[Callable] = None,
-) -> EnvironmentInfo:
-    """Auto-detect the runtime environment.
+# ═══════════════════════════════════════════════════════════════════════
+# ЯДРО МАРШРУТИЗАЦИИ
+# ═══════════════════════════════════════════════════════════════════════
 
-    Delegates to super_z_config.detect_environment() when available,
-    which provides richer detection (HYBRID mode, AI platform heuristics).
+# Пороги confidence для принятия решений
+LOCAL_THRESHOLD = float(os.environ.get('POLER_LOCAL_THRESHOLD', '0.7'))
+AI_THRESHOLD = float(os.environ.get('POLER_AI_THRESHOLD', '0.4'))
 
-    Falls back to local detection logic when super_z_config is not available.
+# Навыки, которые МОГУТ работать локально (без LLM)
+LOCAL_SKILLS = {
+    'search', 'grep', 'analyze', 'extract', 'summarize',
+    'transform', 'convert', 'validate', 'count', 'compare',
+    'poler', 'veins', 'semantic_nav',
+}
 
-    Priority:
-        1. If an LLM callback is provided → AI_PLATFORM
-        2. If SUPER_Z_HOST_LLM_CALLBACK env → AI_PLATFORM
-        3. If z-ai CLI exists → LOCAL_CLI
-        4. Otherwise → STANDALONE
+# Навыки, которые ТОЛЬКО через LLM
+AI_ONLY_SKILLS = {
+    'generate', 'write', 'compose', 'translate_creative',
+    'brainstorm', 'creative',
+}
 
-    Args:
-        llm_callback: Optional Python callable for LLM interaction.
-
-    Returns:
-        EnvironmentInfo with detected details.
+def process_through_poler_core(task: Task) -> Task:
     """
-    # Delegate to super_z_config if available (richer detection)
-    if _HAS_SUPER_Z_CONFIG:
-        config_info = _config_detect_environment(llm_callback=llm_callback)
-        # Map config EnvironmentType to core EnvironmentType
-        type_mapping = {
-            _ConfigEnvType.LLM_NATIVE: EnvironmentType.AI_PLATFORM,
-            _ConfigEnvType.HYBRID: EnvironmentType.AI_PLATFORM,
-            _ConfigEnvType.LOCAL_CLI: EnvironmentType.LOCAL_CLI,
-            _ConfigEnvType.STANDALONE: EnvironmentType.STANDALONE,
-        }
-        core_type = type_mapping.get(config_info.type, EnvironmentType.STANDALONE)
-
-        return EnvironmentInfo(
-            type=core_type,
-            has_callback=config_info.has_callback,
-            has_zai_cli=config_info.has_zai_cli,
-            has_other_cli=config_info.has_other_cli,
-            cli_path=config_info.cli_path,
-            provider_name=config_info.provider_name,
-            hostname=config_info.hostname,
-            is_container=config_info.is_container,
-        )
-
-    # Fallback: local detection (when super_z_config not available)
-    import socket
-
-    info = EnvironmentInfo()
-    info.hostname = socket.gethostname() if hasattr(socket, 'gethostname') else "unknown"
-
-    # Check if running in a container
-    info.is_container = (
-        Path("/.dockerenv").exists() or
-        Path("/run/.containerenv").exists() or
-        os.environ.get("container", "") != "" or
-        os.environ.get("KUBERNETES_SERVICE_HOST", "") != ""
-    )
-
-    # Priority 1: Explicit callback (AI platform mode)
-    if llm_callback is not None:
-        info.type = EnvironmentType.AI_PLATFORM
-        info.has_callback = True
-        info.provider_name = "host_callback"
-        return info
-
-    # Priority 2: Callback from environment variable
-    callback_path = os.environ.get("SUPER_Z_HOST_LLM_CALLBACK", "")
-    if callback_path:
-        try:
-            module_path, func_name = callback_path.rsplit(".", 1)
-            import importlib
-            module = importlib.import_module(module_path)
-            callback = getattr(module, func_name)
-            info.type = EnvironmentType.AI_PLATFORM
-            info.has_callback = True
-            info.provider_name = f"callback:{callback_path}"
-            return info
-        except Exception:
-            pass  # Failed to load, continue checking
-
-    # Priority 3: Check for z-ai CLI
-    z_ai_path = shutil.which("z-ai")
-    if z_ai_path:
-        info.type = EnvironmentType.LOCAL_CLI
-        info.has_zai_cli = True
-        info.cli_path = z_ai_path
-        info.provider_name = "z-ai-cli"
-        return info
-
-    # Priority 4: Check for other CLIs
-    for cli_name in ["claude", "gpt", "ai"]:
-        cli_path = shutil.which(cli_name)
-        if cli_path:
-            info.type = EnvironmentType.LOCAL_CLI
-            info.has_other_cli = True
-            info.cli_path = cli_path
-            info.provider_name = f"{cli_name}-cli"
-            return info
-
-    # Fallback: standalone
-    info.type = EnvironmentType.STANDALONE
-    info.provider_name = "standalone"
-    return info
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Local Executor — runs Python/Bash tasks without any LLM
-# ═══════════════════════════════════════════════════════════════════════════
-# NOTE: When super_z_bridge is available, it handles POLER and skill
-# execution with the AI's native tools (Read/Write/Bash). This makes
-# local execution even more powerful inside an AI platform.
-
-class LocalExecutor:
-    """Execute tasks that don't need an LLM — pure Python/Bash.
-
-    This is the "free tier" of Super Z. No API calls, no tokens,
-    no latency beyond computation time.
-
-    When super_z_bridge is available, it delegates to AIBridge which
-    can use the AI's native tools (Bash, Read, Write) for richer
-    execution capabilities.
-
-    Supported operations:
-    - File read/write/transform (via AI's native tools or Python)
-    - Text analysis (regex, counters, parsers)
-    - Data processing (JSON, CSV, etc.)
-    - POLER text resonance analysis (via bridge or direct import)
-    - Document diffing
-    - Script execution (subprocess)
+    ОБЯЗАТЕЛЬНЫЙ ЭТАП: Пропускаем задачу через POLER Core.
+    
+    Это — «сердце» маршрутизации. Без этого этапа система СЛЕПА.
+    POLER Core:
+    1. Понимает, о чём текст/документ
+    2. Извлекает ключевые слова и домены
+    3. Строит семантические вены для навигации
+    4. Возвращает контекст для принятия решения
     """
-
-    def __init__(self, bridge: Optional[Any] = None):
-        """Initialize with optional bridge.
-
-        Args:
-            bridge: AIBridge instance (from super_z_bridge). If not provided,
-                    will try to create one or use direct Python methods.
-        """
-        self._bridge = bridge
-
-    def _get_bridge(self) -> Optional[Any]:
-        """Get or create bridge instance."""
-        if self._bridge is not None:
-            return self._bridge
-        if _HAS_SUPER_Z_BRIDGE:
-            self._bridge = _get_bridge()
-            return self._bridge
-        return None
-
-    def can_handle(self, skill_name: str, query: str) -> bool:
-        """Check if this skill+query can be handled locally.
-
-        Args:
-            skill_name: Name of the skill.
-            query: User's query text.
-
-        Returns:
-            True if the task can be done without LLM.
-        """
-        category = classify_skill(skill_name)
-        if category == SkillCategory.LOCAL:
-            return True
-
-        # Even AI_REASONING skills can sometimes be handled locally
-        # if the query is simple enough (e.g., "list files", "count words")
-        local_patterns = [
-            r'\b(count|list|show|display|extract|parse|convert|diff|compare)\b',
-            r'\b(сколько|перечисл|покаж|извлек|парс|конверт|сравн)\b',
-        ]
-        import re
-        for pattern in local_patterns:
-            if re.search(pattern, query.lower()):
-                return True
-
-        return False
-
-    def execute(
-        self,
-        skill_name: str,
-        query: str,
-        skill_md: str = "",
-        skill_dir: Optional[Path] = None,
-        timeout_sec: int = 60,
-    ) -> Optional[str]:
-        """Execute a local task.
-
-        Delegates to super_z_bridge when available for richer execution
-        (AI's native tools, direct POLER import). Falls back to direct
-        Python/subprocess when bridge is not available.
-
-        Args:
-            skill_name: Name of the skill.
-            query: User's query text.
-            skill_md: Skill methodology document.
-            skill_dir: Path to the skill directory.
-            timeout_sec: Timeout for subprocess calls.
-
-        Returns:
-            Result text, or None if the task cannot be done locally.
-        """
-        # Priority 1: Use bridge if available (AI native tools + POLER)
-        bridge = self._get_bridge()
-        if bridge is not None:
+    core = get_poler_core()
+    
+    # Если есть текст — анализируем через вены
+    text = task.input_text
+    if not text and task.input_files:
+        # Читаем первый файл
+        for fpath in task.input_files:
             try:
-                result = bridge.execute_skill(
-                    skill_name=skill_name,
-                    query=query,
-                    skill_md=skill_md,
-                    skill_dir=str(skill_dir) if skill_dir else None,
-                    timeout_sec=timeout_sec,
-                )
-                if result is not None:
-                    return result
-            except Exception as e:
-                pass  # Bridge failed, try local methods
+                p = Path(fpath)
+                if p.exists() and p.suffix.lower() in ['.txt', '.md', '.json', '.epub', '.html']:
+                    text += p.read_text(encoding='utf-8', errors='ignore') + '\n\n'
+            except:
+                continue
+    
+    if text.strip():
+        # Шаг 1: Авто-обнаружение тем
+        themes = core['auto_discover_themes'](text)
+        
+        # Шаг 2: Построение вен
+        veins = core['build_veins'](
+            text,
+            source_file=task.input_files[0] if task.input_files else "",
+        )
+        
+        # Заполняем задачу результатами POLER Core
+        task.poler_result = themes
+        task.poler_veins = veins
+        
+        # Определяем домен и intent
+        if themes.get('domains'):
+            top_domain = themes['domains'][0]
+            task.domain = top_domain['domain']
+            task.confidence = top_domain['confidence']
+        
+        # Intent определяется по ключевым словам
+        if veins.get('veins'):
+            top_vein = veins['veins'][0]
+            task.intent = f"{top_vein['domain']}:{top_vein['keyword']}"
+    else:
+        # Нет текста — минимальный контекст
+        task.poler_result = {'domains': [], 'keywords': [], 'theme_map': {}}
+        task.poler_veins = {'veins': [], 'domains': [], 'navigation_map': {}}
+    
+    return task
 
-        # Priority 2: Try to find and run the skill's own script
-        if skill_dir:
-            run_py = skill_dir / "scripts" / "run.py"
-            if run_py.exists():
-                try:
-                    cmd = [sys.executable, str(run_py), query]
-                    r = subprocess.run(
-                        cmd, capture_output=True, text=True, timeout=timeout_sec,
-                        cwd=str(skill_dir),
-                    )
-                    if r.returncode == 0 and r.stdout.strip():
-                        return r.stdout.strip()
-                except (subprocess.TimeoutExpired, Exception):
-                    pass
-
-        # POLER analysis (built-in, no external deps)
-        if skill_name in ("poler-psi", "poler-toolkit"):
-            return self._poler_analysis(query, skill_md)
-
-        # Generic text operations
-        return self._generic_local(skill_name, query, skill_md)
-
-    def _poler_analysis(self, query: str, skill_md: str) -> str:
-        """Run POLER text analysis locally."""
-        try:
-            from poler_enhanced import PolerAnalyzer
-            analyzer = PolerAnalyzer()
-            result = analyzer.analyze_text(skill_md or query, query)
-            return json.dumps(result, ensure_ascii=False, indent=2)
-        except ImportError:
-            # POLER not available, basic analysis
-            return json.dumps({
-                "status": "local_fallback",
-                "message": "POLER engine not available, using basic text analysis",
-                "text_length": len(skill_md or query),
-                "query": query[:200],
-            }, ensure_ascii=False, indent=2)
-
-    def _generic_local(self, skill_name: str, query: str,
-                       skill_md: str) -> Optional[str]:
-        """Handle generic local tasks."""
-        # If we have skill_md and a simple query, return relevant sections
-        if skill_md and len(query) < 100:
-            import re
-            # Find sections matching query keywords
-            keywords = re.findall(r'\w+', query.lower())
-            sections = skill_md.split('\n\n')
-            relevant = []
-            for section in sections:
-                section_lower = section.lower()
-                if any(kw in section_lower for kw in keywords):
-                    relevant.append(section.strip())
-
-            if relevant:
-                return "\n\n".join(relevant[:5])
-
-        # Cannot handle locally
-        return None
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# LLM Provider Factory — creates the RIGHT provider for the environment
-# ═══════════════════════════════════════════════════════════════════════════
-
-def create_llm_provider(
-    env_info: Optional[EnvironmentInfo] = None,
-    llm_callback: Optional[Callable] = None,
-    cli_command: Optional[str] = None,
-) -> Optional[Any]:
-    """Create an LLM provider based on the detected environment.
-
-    LOCAL FIRST priority:
-        1. Python callback (free, in-process) → for AI platform mode
-        2. Environment variable callback (free, in-process)
-        3. Custom CLI command (if specified)
-        4. z-ai CLI (paid, subprocess) → LAST RESORT
-        5. None (standalone, no LLM available)
-
-    This is the OPPOSITE of the old behavior which defaulted to z-ai CLI.
-
-    Args:
-        env_info: Pre-detected environment info (or None to auto-detect).
-        llm_callback: Python callable for LLM interaction.
-        cli_command: Override CLI command.
-
-    Returns:
-        LLMProvider instance, or None if no provider is available.
+def decide_route(task: Task) -> RouteDecision:
     """
-    if env_info is None:
-        env_info = detect_environment(llm_callback=llm_callback)
-
-    # Import the provider class
-    try:
-        from llm_provider import HostLLMProvider, MockLLMProvider
-    except ImportError:
-        # llm_provider.py not in path, try sandbox dir
-        _sandbox_dir = Path(__file__).resolve().parent
-        if str(_sandbox_dir) not in sys.path:
-            sys.path.insert(0, str(_sandbox_dir))
-        try:
-            from llm_provider import HostLLMProvider, MockLLMProvider
-        except ImportError:
-            sys.stderr.write("[super_z_core] Cannot import llm_provider\n")
-            return None
-
-    # Priority 1: Python callback (AI platform mode — FREE)
-    if llm_callback:
-        return HostLLMProvider(callback=llm_callback)
-
-    # Priority 2: Callback from environment variable
-    callback_path = os.environ.get("SUPER_Z_HOST_LLM_CALLBACK", "")
-    if callback_path:
-        try:
-            module_path, func_name = callback_path.rsplit(".", 1)
-            import importlib
-            module = importlib.import_module(module_path)
-            callback = getattr(module, func_name)
-            return HostLLMProvider(callback=callback)
-        except Exception as e:
-            sys.stderr.write(f"[super_z_core] Failed to load callback: {e}\n")
-
-    # Priority 3: Custom CLI command
-    if cli_command:
-        return HostLLMProvider(cli_command=cli_command)
-
-    # Priority 4: Environment variable CLI command
-    env_cli = os.environ.get("SUPER_Z_HOST_LLM", "")
-    if env_cli:
-        return HostLLMProvider(cli_command=env_cli)
-
-    # Priority 5: z-ai CLI — LAST RESORT (paid!)
-    if env_info.has_zai_cli:
-        sys.stderr.write(
-            "[super_z_core] WARNING: Falling back to z-ai CLI (paid calls). "
-            "For free execution, set SUPER_Z_HOST_LLM_CALLBACK or pass llm_callback.\n"
-        )
-        return HostLLMProvider.from_zai_cli()
-
-    # No provider available
-    sys.stderr.write(
-        "[super_z_core] No LLM provider available. "
-        "Set SUPER_Z_HOST_LLM_CALLBACK or install z-ai CLI.\n"
-    )
-    return None
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Super Z Core — The Main Engine
-# ═══════════════════════════════════════════════════════════════════════════
-
-class SuperZCore:
-    """Super Z Core: Local-First Routing Engine.
-
-    The brain of the operation. Routes tasks to the cheapest, fastest
-    executor available:
-
-        LOCAL (free) → AI callback (free) → External CLI (paid) → None
-
-    Usage:
-        # Auto-detect everything
-        core = SuperZCore()
-        result = core.run_skill("blog-writer", "Write about AI", skill_md)
-
-        # With explicit callback (from AI platform)
-        core = SuperZCore(llm_callback=my_llm_function)
-        result = core.run_skill(...)
-
-        # Check environment
-        env = core.get_environment()
+    ПРИНЯТИЕ РЕШЕНИЯ О МАРШРУТЕ.
+    
+    Логика:
+    1. Если POLER Core дал высокий confidence → LOCAL (без LLM)
+    2. Если средний confidence + нужен AI → AI (LLM с контекстом POLER)
+    3. Если задача CLI-типа → CLI
+    4. Если ничего не подошло → HUMAN
     """
-
-    def __init__(
-        self,
-        llm_callback: Optional[Callable[[str, str], Optional[str]]] = None,
-        cli_command: Optional[str] = None,
-        verbose: bool = False,
-    ):
-        """Initialize Super Z Core.
-
-        Args:
-            llm_callback: Python callable(system_prompt, user_prompt) -> response.
-                         Pass this when running inside an AI platform.
-            cli_command: Override CLI command (e.g., "claude", "gpt").
-            verbose: Print debug information.
-        """
-        self.verbose = verbose
-        self._llm_callback = llm_callback
-        self._cli_command = cli_command
-
-        # Detect environment
-        self._env_info = detect_environment(llm_callback=llm_callback)
-        if self.verbose:
-            print(f"[super_z_core] Environment: {self._env_info.type.value}, "
-                  f"provider: {self._env_info.provider_name}", file=sys.stderr)
-
-        # Initialize components
-        self._local_executor = LocalExecutor()
-        self._llm_provider = None  # Lazy initialization
-        self._sandbox_v2 = None    # Lazy initialization
-
-        # Stats
-        self._stats = {
-            "total_calls": 0,
-            "local_calls": 0,
-            "ai_calls": 0,
-            "external_calls": 0,
-            "failed_calls": 0,
-            "money_saved": 0,  # Estimated calls that would have been paid
-        }
-
-    def detect_environment(self) -> EnvironmentInfo:
-        """Get environment info (re-detect if needed)."""
-        return self._env_info
-
-    def get_environment(self) -> Dict:
-        """Get environment info as dict (for logging/API)."""
-        return self._env_info.to_dict()
-
-    def run_skill(
-        self,
-        skill_name: str,
-        user_query: str,
-        skill_md: str = "",
-        skill_dir: Optional[str] = None,
-        system_prompt: Optional[str] = None,
-        timeout_sec: int = 120,
-    ) -> Optional[str]:
-        """Run a skill with Local-First routing.
-
-        ROUTING LOGIC:
-            1. Classify the skill (LOCAL / AI_REASONING / EXTERNAL_API)
-            2. If LOCAL → execute directly (free, instant)
-            3. If AI_REASONING → use LLM callback (free) or CLI (paid)
-            4. If EXTERNAL_API → must use CLI (paid, no alternative)
-
-        Args:
-            skill_name: Name of the skill to run.
-            user_query: User's query text.
-            skill_md: Skill methodology document (SKILL.md content).
-            skill_dir: Path to the skill directory.
-            system_prompt: Optional system prompt override.
-            timeout_sec: Timeout for LLM/CLI calls.
-
-        Returns:
-            Generated text response, or None on failure.
-        """
-        start_time = time.time()
-        self._stats["total_calls"] += 1
-
-        # ── Step 1: Classify the skill ──
-        category = classify_skill(skill_name)
-
-        if self.verbose:
-            print(f"[super_z_core] Routing: {skill_name} → {category.value}",
-                  file=sys.stderr)
-
-        # ── Step 2: LOCAL skills → execute directly (FREE) ──
-        if category == SkillCategory.LOCAL:
-            result = self._execute_local(
-                skill_name, user_query, skill_md,
-                Path(skill_dir) if skill_dir else None,
-            )
-            if result is not None:
-                self._stats["local_calls"] += 1
-                self._stats["money_saved"] += 1  # Would have been a paid call
-                if self.verbose:
-                    elapsed = time.time() - start_time
-                    print(f"[super_z_core] LOCAL: {skill_name} done in "
-                          f"{elapsed:.2f}s (FREE)", file=sys.stderr)
-                return result
-
-        # ── Step 3: Check if query can be handled locally ──
-        if self._local_executor.can_handle(skill_name, user_query):
-            result = self._execute_local(
-                skill_name, user_query, skill_md,
-                Path(skill_dir) if skill_dir else None,
-            )
-            if result is not None:
-                self._stats["local_calls"] += 1
-                self._stats["money_saved"] += 1
-                if self.verbose:
-                    elapsed = time.time() - start_time
-                    print(f"[super_z_core] LOCAL (fallback): {skill_name} done in "
-                          f"{elapsed:.2f}s (FREE)", file=sys.stderr)
-                return result
-
-        # ── Step 4: AI_REASONING → use LLM callback (free) or CLI (paid) ──
-        if category == SkillCategory.AI_REASONING:
-            result = self._execute_with_llm(
-                skill_name, user_query, skill_md, system_prompt, timeout_sec,
-            )
-            if result is not None:
-                if self._env_info.has_callback:
-                    self._stats["ai_calls"] += 1
-                    self._stats["money_saved"] += 1  # Free vs paid
-                else:
-                    self._stats["external_calls"] += 1
-                if self.verbose:
-                    elapsed = time.time() - start_time
-                    cost = "FREE" if self._env_info.has_callback else "PAID"
-                    print(f"[super_z_core] AI: {skill_name} done in "
-                          f"{elapsed:.2f}s ({cost})", file=sys.stderr)
-                return result
-
-        # ── Step 5: EXTERNAL_API → must use CLI (paid) ──
-        if category == SkillCategory.EXTERNAL_API:
-            result = self._execute_with_llm(
-                skill_name, user_query, skill_md, system_prompt, timeout_sec,
-            )
-            if result is not None:
-                self._stats["external_calls"] += 1
-                if self.verbose:
-                    elapsed = time.time() - start_time
-                    print(f"[super_z_core] EXTERNAL: {skill_name} done in "
-                          f"{elapsed:.2f}s (PAID)", file=sys.stderr)
-                return result
-
-        # ── All methods failed ──
-        self._stats["failed_calls"] += 1
-        if self.verbose:
-            print(f"[super_z_core] FAILED: {skill_name} — no available executor",
-                  file=sys.stderr)
-        return None
-
-    # ── Private: Local execution ──────────────────────────────────────────
-
-    def _execute_local(
-        self,
-        skill_name: str,
-        query: str,
-        skill_md: str,
-        skill_dir: Optional[Path],
-    ) -> Optional[str]:
-        """Execute a task locally using Python/Bash only."""
-        return self._local_executor.execute(
-            skill_name=skill_name,
-            query=query,
-            skill_md=skill_md,
-            skill_dir=skill_dir,
+    # Навык явно требует AI
+    if task.skill_name in AI_ONLY_SKILLS:
+        return RouteDecision(
+            route='ai',
+            reason=f'Навык "{task.skill_name}" требует LLM',
+            confidence=task.confidence,
+            poler_insights=task.poler_veins or {},
+            estimated_cost='medium',
         )
-
-    # ── Private: LLM execution ────────────────────────────────────────────
-
-    def _execute_with_llm(
-        self,
-        skill_name: str,
-        query: str,
-        skill_md: str,
-        system_prompt: Optional[str],
-        timeout_sec: int,
-    ) -> Optional[str]:
-        """Execute a task using LLM (callback or CLI).
-
-        Routing priority (NEW with v2 modules):
-            1. super_z_llm_callback (FREE if callback available)
-            2. SandboxV2 (Observer+POLER, token-efficient)
-            3. Direct LLM call (provider.chat)
-
-        Uses super_z_llm_callback when available for FREE AI reasoning.
-        Falls back to SandboxV2 for token efficiency.
-        Falls back to direct LLM call when sandbox is not available.
-        """
-        # Build the system prompt
-        sp = system_prompt or (
-            f"You are the '{skill_name}' skill. "
-            f"Follow the methodology strictly. "
-            f"Respond in the user's language."
+    
+    # POLER Core дал высокий confidence → LOCAL
+    if task.confidence >= LOCAL_THRESHOLD:
+        return RouteDecision(
+            route='local',
+            reason=f'POLER Core: домен="{task.domain}", confidence={task.confidence:.2f} >= {LOCAL_THRESHOLD}',
+            confidence=task.confidence,
+            poler_insights=task.poler_veins or {},
+            estimated_cost='free',
         )
-        if skill_md and not system_prompt:
-            sp += f"\n\n--- SKILL.md ---\n{skill_md[:3000]}\n--- END ---"
-
-        # Priority 1: Use super_z_llm_callback (FREE with callback)
-        if _HAS_SUPER_Z_LLM_CALLBACK:
-            try:
-                result = _execute_with_callback(
-                    skill_name=skill_name,
-                    system_prompt=sp,
-                    user_prompt=query,
-                    llm_callback=self._llm_callback,
-                    timeout_sec=timeout_sec,
-                    verbose=self.verbose,
-                )
-                if result is not None:
-                    if self.verbose:
-                        print(f"[super_z_core] LLM via callback: {skill_name} "
-                              f"(FREE)", file=sys.stderr)
-                    return result
-            except Exception as e:
-                if self.verbose:
-                    print(f"[super_z_core] LLM callback failed: {e}",
-                          file=sys.stderr)
-
-        # Priority 2: Try SandboxV2 (more efficient than direct call)
-        try:
-            sandbox = self._get_sandbox_v2()
-            if sandbox:
-                messages = []
-                if system_prompt:
-                    messages.append({"role": "system", "content": system_prompt})
-                elif skill_md:
-                    messages.append({
-                        "role": "system",
-                        "content": (
-                            f"You are the '{skill_name}' skill. "
-                            f"Follow the methodology below strictly.\n\n"
-                            f"--- SKILL.md ---\n{skill_md}\n--- END SKILL.md ---"
-                        ),
-                    })
-                messages.append({"role": "user", "content": query})
-
-                return sandbox.chat(messages)
-        except Exception as e:
-            if self.verbose:
-                print(f"[super_z_core] SandboxV2 failed: {e}", file=sys.stderr)
-
-        # Priority 3: Direct LLM call (fallback)
-        provider = self._get_llm_provider()
-        if provider:
-            return provider.chat(sp, query, timeout_sec=timeout_sec)
-
-        return None
-
-    # ── Private: Lazy initialization ──────────────────────────────────────
-
-    def _get_llm_provider(self) -> Optional[Any]:
-        """Get or create the LLM provider (lazy init)."""
-        if self._llm_provider is None:
-            self._llm_provider = create_llm_provider(
-                env_info=self._env_info,
-                llm_callback=self._llm_callback,
-                cli_command=self._cli_command,
-            )
-        return self._llm_provider
-
-    def _get_sandbox_v2(self) -> Optional[Any]:
-        """Get or create SandboxV2 instance (lazy init)."""
-        if self._sandbox_v2 is not None:
-            return self._sandbox_v2
-
-        provider = self._get_llm_provider()
-        if provider is None:
-            return None
-
-        try:
-            from sandbox_v2 import SandboxV2
-            self._sandbox_v2 = SandboxV2(
-                llm_provider=provider,
-                verbose=self.verbose,
-            )
-            return self._sandbox_v2
-        except ImportError:
-            if self.verbose:
-                print("[super_z_core] SandboxV2 not available, using direct LLM",
-                      file=sys.stderr)
-            return None
-
-    # ── Stats ─────────────────────────────────────────────────────────────
-
-    def stats(self) -> Dict:
-        """Return execution statistics.
-
-        Includes:
-        - Total calls made
-        - How many were local (free)
-        - How many used AI callback (free)
-        - How many used external CLI (paid)
-        - Estimated money saved (calls that would have been paid under old system)
-        """
-        return dict(self._stats)
-
-    def cost_summary(self) -> str:
-        """Return a human-readable cost summary."""
-        s = self._stats
-        total = s["total_calls"] or 1
-        local_pct = s["local_calls"] / total * 100
-        ai_pct = s["ai_calls"] / total * 100
-        ext_pct = s["external_calls"] / total * 100
-        saved_pct = s["money_saved"] / total * 100
-
-        return (
-            f"Super Z Core — Cost Summary\n"
-            f"{'='*40}\n"
-            f"Total calls:     {s['total_calls']}\n"
-            f"Local (free):    {s['local_calls']} ({local_pct:.0f}%)\n"
-            f"AI callback:     {s['ai_calls']} ({ai_pct:.0f}%)\n"
-            f"External (paid): {s['external_calls']} ({ext_pct:.0f}%)\n"
-            f"Failed:          {s['failed_calls']}\n"
-            f"Money saved:     ~{s['money_saved']} calls ({saved_pct:.0f}% of total)\n"
-            f"{'='*40}"
+    
+    # Средний confidence → AI с контекстом
+    if task.confidence >= AI_THRESHOLD:
+        return RouteDecision(
+            route='ai',
+            reason=f'POLER Core: домен="{task.domain}", confidence={task.confidence:.2f} — нужен LLM',
+            confidence=task.confidence,
+            poler_insights=task.poler_veins or {},
+            estimated_cost='low',
         )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Drop-in replacement for run_skill_sandbox_v2()
-# ═══════════════════════════════════════════════════════════════════════════
-
-# Module-level singleton (same pattern as bridge.py)
-_core_instance: Optional[SuperZCore] = None
-
-
-def get_core(
-    llm_callback: Optional[Callable] = None,
-    verbose: bool = False,
-) -> SuperZCore:
-    """Get or create the Super Z Core singleton.
-
-    Args:
-        llm_callback: Python callable for LLM interaction.
-        verbose: Print debug information.
-
-    Returns:
-        SuperZCore instance.
-    """
-    global _core_instance
-    if _core_instance is None or llm_callback is not None:
-        _core_instance = SuperZCore(
-            llm_callback=llm_callback,
-            verbose=verbose,
+    
+    # Низкий confidence → CLI или Human
+    if task.skill_name in LOCAL_SKILLS or task.intent:
+        return RouteDecision(
+            route='cli',
+            reason=f'POLER Core: низкий confidence ({task.confidence:.2f}), пробуем CLI',
+            confidence=task.confidence,
+            poler_insights=task.poler_veins or {},
+            estimated_cost='free',
         )
-    return _core_instance
-
-
-def run_skill_local_first(
-    skill_name: str,
-    user_query: str,
-    skill_md: str = "",
-    skill_dir: Optional[str] = None,
-    system_prompt: Optional[str] = None,
-    llm_callback: Optional[Callable] = None,
-    verbose: bool = False,
-) -> Optional[str]:
-    """Drop-in replacement for the old run_skill_sandbox_v2().
-
-    Uses Local-First routing instead of always calling external CLI.
-
-    Args:
-        skill_name: Name of the skill.
-        user_query: User's query.
-        skill_md: Skill methodology document.
-        skill_dir: Path to skill directory.
-        system_prompt: System prompt override.
-        llm_callback: Python callable(system_prompt, user_prompt) -> response.
-        verbose: Print debug information.
-
-    Returns:
-        Text response, or None on failure.
-    """
-    core = get_core(llm_callback=llm_callback, verbose=verbose)
-    return core.run_skill(
-        skill_name=skill_name,
-        user_query=user_query,
-        skill_md=skill_md,
-        skill_dir=skill_dir,
-        system_prompt=system_prompt,
+    
+    # Всё — к человеку
+    return RouteDecision(
+        route='human',
+        reason=f'POLER Core: не удалось определить задачу (confidence={task.confidence:.2f})',
+        confidence=task.confidence,
+        poler_insights=task.poler_veins or {},
+        estimated_cost='high',
     )
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# get_backend_type_routing() — replacement for the old routing function
-# ═══════════════════════════════════════════════════════════════════════════
-
-def get_backend_type_routing(
-    skill_name: str,
-    env_info: Optional[EnvironmentInfo] = None,
-) -> Dict[str, Any]:
-    """Determine the optimal backend type for a skill.
-
-    REPLACES the old function that always returned "zai_cli".
-    Now returns "local" when possible, "callback" when in AI platform,
-    and "cli" only as last resort.
-
-    Args:
-        skill_name: Name of the skill to route.
-        env_info: Pre-detected environment info (or None to auto-detect).
-
-    Returns:
-        {
-            "backend": "local" | "callback" | "cli",
-            "category": "local" | "ai" | "external",
-            "cost": "free" | "free_callback" | "paid",
-            "reason": "Human-readable explanation",
-            "env_type": "ai_platform" | "local_cli" | "standalone",
-        }
-    """
-    if env_info is None:
-        env_info = detect_environment()
-
-    category = classify_skill(skill_name)
-
-    # LOCAL skills → always free
-    if category == SkillCategory.LOCAL:
-        return {
-            "backend": "local",
-            "category": category.value,
-            "cost": "free",
-            "reason": f"Skill '{skill_name}' can be executed locally with Python/Bash",
-            "env_type": env_info.type.value,
-        }
-
-    # AI_REASONING skills → callback if available, CLI otherwise
-    if category == SkillCategory.AI_REASONING:
-        if env_info.has_callback:
-            return {
-                "backend": "callback",
-                "category": category.value,
-                "cost": "free_callback",
-                "reason": (
-                    f"Skill '{skill_name}' needs LLM reasoning. "
-                    f"Using host AI callback (free, in-process)."
-                ),
-                "env_type": env_info.type.value,
-            }
-        elif env_info.has_zai_cli or env_info.has_other_cli:
-            return {
-                "backend": "cli",
-                "category": category.value,
-                "cost": "paid",
-                "reason": (
-                    f"Skill '{skill_name}' needs LLM reasoning. "
-                    f"No callback available, using CLI (paid). "
-                    f"Set SUPER_Z_HOST_LLM_CALLBACK for free execution."
-                ),
-                "env_type": env_info.type.value,
-            }
-        else:
-            return {
-                "backend": "none",
-                "category": category.value,
-                "cost": "unavailable",
-                "reason": (
-                    f"Skill '{skill_name}' needs LLM reasoning but no provider "
-                    f"is available. Install z-ai CLI or set "
-                    f"SUPER_Z_HOST_LLM_CALLBACK."
-                ),
-                "env_type": env_info.type.value,
-            }
-
-    # EXTERNAL_API skills → always need CLI
-    if category == SkillCategory.EXTERNAL_API:
-        if env_info.has_zai_cli or env_info.has_other_cli:
-            return {
-                "backend": "cli",
-                "category": category.value,
-                "cost": "paid",
-                "reason": (
-                    f"Skill '{skill_name}' requires external API. "
-                    f"CLI is the only option."
-                ),
-                "env_type": env_info.type.value,
-            }
-        else:
-            return {
-                "backend": "none",
-                "category": category.value,
-                "cost": "unavailable",
-                "reason": (
-                    f"Skill '{skill_name}' requires external API but no CLI "
-                    f"is available."
-                ),
-                "env_type": env_info.type.value,
-            }
-
-    # Fallback (should not reach here)
-    return {
-        "backend": "none",
-        "category": "unknown",
-        "cost": "unavailable",
-        "reason": f"Cannot determine routing for skill '{skill_name}'",
-        "env_type": env_info.type.value,
+def execute_local(task: Task, decision: RouteDecision) -> TaskResult:
+    """Выполнение локально (без LLM) — используя POLER Core."""
+    start = time.time()
+    core = get_poler_core()
+    
+    result_data = {
+        'domain': task.domain,
+        'confidence': task.confidence,
+        'veins_count': len(task.poler_veins.get('veins', [])) if task.poler_veins else 0,
+        'navigation_map': task.poler_veins.get('navigation_map', {}) if task.poler_veins else {},
     }
+    
+    # Если задача — навигация по документу, возвращаем вены
+    if task.skill_name in ('poler', 'veins', 'semantic_nav', 'analyze', 'search'):
+        result_data['veins'] = task.poler_veins
+        result_data['themes'] = task.poler_result
+    
+    duration = (time.time() - start) * 1000
+    
+    return TaskResult(
+        task_id=task.task_id,
+        route='local',
+        success=True,
+        data=result_data,
+        duration_ms=duration,
+        poler_context=decision.poler_insights,
+    )
 
+def execute_ai(task: Task, decision: RouteDecision) -> TaskResult:
+    """Выполнение через AI (LLM) — с обогащённым контекстом от POLER Core."""
+    start = time.time()
+    
+    # Формируем enriched prompt с контекстом POLER
+    poler_context = decision.poler_insights
+    
+    enriched_prompt = ""
+    if poler_context:
+        domains = poler_context.get('domains', [])
+        veins = poler_context.get('veins', [])
+        
+        if domains:
+            enriched_prompt += f"[POLER Domain: {', '.join(d['domain'] for d in domains)}]\n"
+        if veins:
+            top_keywords = [v['keyword'] for v in veins[:5]]
+            enriched_prompt += f"[POLER Keywords: {', '.join(top_keywords)}]\n"
+            enriched_prompt += f"[POLER Peak ε: {veins[0].get('epsilon_peak', 0):.0f}]\n"
+    
+    # В реальной системе здесь вызов LLM
+    # Сейчас — заглушка, возвращаем enriched контекст
+    result_data = {
+        'route': 'ai',
+        'domain': task.domain,
+        'enriched_prompt_preview': enriched_prompt[:500],
+        'poler_context_injected': bool(poler_context),
+        'note': 'LLM вызов с обогащённым контекстом от POLER Core',
+    }
+    
+    duration = (time.time() - start) * 1000
+    
+    return TaskResult(
+        task_id=task.task_id,
+        route='ai',
+        success=True,
+        data=result_data,
+        duration_ms=duration,
+        poler_context=decision.poler_insights,
+    )
 
-# ═══════════════════════════════════════════════════════════════════════════
-# CLI — for testing and debugging
-# ═══════════════════════════════════════════════════════════════════════════
+def execute_cli(task: Task, decision: RouteDecision) -> TaskResult:
+    """Выполнение через CLI команду."""
+    start = time.time()
+    
+    result_data = {
+        'route': 'cli',
+        'domain': task.domain,
+        'note': 'CLI выполнение (заглушка)',
+    }
+    
+    duration = (time.time() - start) * 1000
+    
+    return TaskResult(
+        task_id=task.task_id,
+        route='cli',
+        success=True,
+        data=result_data,
+        duration_ms=duration,
+        poler_context=decision.poler_insights,
+    )
 
-if __name__ == "__main__":
+def execute_human(task: Task, decision: RouteDecision) -> TaskResult:
+    """Передача человеку."""
+    return TaskResult(
+        task_id=task.task_id,
+        route='human',
+        success=False,
+        data={
+            'route': 'human',
+            'reason': decision.reason,
+            'domain': task.domain,
+            'confidence': task.confidence,
+        },
+        poler_context=decision.poler_insights,
+    )
+
+# ═══════════════════════════════════════════════════════════════════════
+# ГЛАВНЫЙ ЦИКЛ МАРШРУТИЗАЦИИ
+# ═══════════════════════════════════════════════════════════════════════
+
+EXECUTORS = {
+    'local': execute_local,
+    'ai': execute_ai,
+    'cli': execute_cli,
+    'human': execute_human,
+}
+
+def route_task(task: Task) -> TaskResult:
+    """
+    ГЛАВНЫЙ ВХОД: Маршрутизация задачи через POLER Core.
+    
+    Цикл:
+      Задача → POLER Core → decide_route → execute → Результат
+    
+    ЛЮБАЯ задача проходит через POLER Core ПЕРЕД любым другим действием.
+    """
+    # ЭТАП 1: POLER Core — ОБЯЗАТЕЛЬНЫЙ
+    task = process_through_poler_core(task)
+    
+    # ЭТАП 2: Решение о маршруте
+    decision = decide_route(task)
+    
+    # ЭТАП 3: Выполнение
+    executor = EXECUTORS.get(decision.route, execute_human)
+    result = executor(task, decision)
+    
+    return result
+
+# ═══════════════════════════════════════════════════════════════════════
+# ПУБЛИЧНЫЙ API
+# ═══════════════════════════════════════════════════════════════════════
+
+def process(
+    text: str = "",
+    files: Optional[List[str]] = None,
+    skill: str = "",
+    task_id: str = "",
+) -> TaskResult:
+    """
+    Единый вход для обработки ЛЮБОЙ задачи.
+    
+    Автоматически:
+    1. Пропускает через POLER Core (понимание)
+    2. Выбирает маршрут (Local → AI → CLI → Human)
+    3. Выполняет и возвращает результат
+    
+    Args:
+        text: Входной текст
+        files: Список файлов для анализа
+        skill: Имя навыка (если известно)
+        task_id: ID задачи
+    
+    Returns:
+        TaskResult с результатом
+    """
+    if not task_id:
+        task_id = f"task_{int(time.time() * 1000)}"
+    
+    task = Task(
+        task_id=task_id,
+        input_text=text,
+        input_files=files or [],
+        skill_name=skill,
+    )
+    
+    return route_task(task)
+
+def analyze_document(
+    filepath: str,
+    custom_seeds: Optional[Dict[str, List[str]]] = None,
+) -> Dict:
+    """
+    Быстрый анализ документа через POLER Core.
+    
+    Возвращает: домены, вены, карту навигации.
+    """
+    core = get_poler_core()
+    p = Path(filepath)
+    
+    if not p.exists():
+        return {'error': f'Файл не найден: {filepath}'}
+    
+    text = ""
+    try:
+        text = p.read_text(encoding='utf-8', errors='ignore')
+    except:
+        return {'error': f'Не удалось прочитать: {filepath}'}
+    
+    return core['build_veins'](text, custom_seeds=custom_seeds, source_file=filepath)
+
+def quick_understand(text: str) -> Dict:
+    """
+    Быстрое понимание текста — только домены и ключевые слова.
+    Без полного анализа вен (быстрее).
+    """
+    core = get_poler_core()
+    return core['auto_discover_themes'](text)
+
+# ═══════════════════════════════════════════════════════════════════════
+# CLI
+# ═══════════════════════════════════════════════════════════════════════
+
+def main():
     import argparse
-
+    
     parser = argparse.ArgumentParser(
-        description="Super Z Core — Local-First Routing Engine"
+        prog='super_z_core',
+        description='Super Z Core — Нервная Система (маршрутизация через POLER Core)',
     )
-    parser.add_argument(
-        "command",
-        choices=["env", "route", "run", "stats"],
-        help="Command to execute",
-    )
-    parser.add_argument("--skill", default="blog-writer", help="Skill name")
-    parser.add_argument("--query", default="", help="User query")
-    parser.add_argument("--skill-md", default=None, help="Path to SKILL.md")
-    parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument('input', nargs='?', help='Файл или текст')
+    parser.add_argument('--stdin', action='store_true', help='Читать из stdin')
+    parser.add_argument('--skill', default='', help='Имя навыка')
+    parser.add_argument('--task-id', default='', help='ID задачи')
+    parser.add_argument('--analyze', action='store_true',
+                        help='Только анализ через POLER Core (без маршрутизации)')
+    parser.add_argument('--understand', action='store_true',
+                        help='Быстрое понимание (только домены + ключевые слова)')
+    parser.add_argument('-f', '--format', choices=['ascii', 'json'], default='ascii')
+    
     args = parser.parse_args()
-
-    if args.command == "env":
-        # Show environment detection
-        env = detect_environment()
-        print(json.dumps(env.to_dict(), ensure_ascii=False, indent=2))
-
-    elif args.command == "route":
-        # Show routing decision for a skill
-        routing = get_backend_type_routing(args.skill)
-        print(json.dumps(routing, ensure_ascii=False, indent=2))
-
-    elif args.command == "run":
-        # Run a skill with Local-First routing
-        if not args.query:
-            print("Error: --query is required for 'run' command", file=sys.stderr)
-            sys.exit(1)
-
-        skill_md = ""
-        if args.skill_md:
-            skill_md = Path(args.skill_md).read_text(encoding="utf-8")
-
-        core = SuperZCore(verbose=args.verbose)
-        result = core.run_skill(
-            skill_name=args.skill,
-            user_query=args.query,
-            skill_md=skill_md,
-        )
-
-        if result:
-            print(result)
+    
+    # Собираем текст
+    text = args.input or ""
+    if args.stdin:
+        text = sys.stdin.read()
+    elif args.input and Path(args.input).exists():
+        text = Path(args.input).read_text(encoding='utf-8', errors='ignore')
+    
+    if not text.strip():
+        parser.print_help()
+        return
+    
+    # Режим анализа
+    if args.analyze:
+        result = analyze_document(args.input) if args.input and Path(args.input).exists() else \
+                 get_poler_core()['build_veins'](text, source_file='<stdin>')
+        if args.format == 'json':
+            print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
         else:
-            print("No result (skill could not be executed)", file=sys.stderr)
-            sys.exit(1)
+            _print_analysis(result)
+        return
+    
+    # Режим быстрого понимания
+    if args.understand:
+        result = quick_understand(text)
+        if args.format == 'json':
+            print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        else:
+            _print_understand(result)
+        return
+    
+    # Полная маршрутизация
+    task_result = process(
+        text=text,
+        skill=args.skill,
+        task_id=args.task_id,
+    )
+    
+    if args.format == 'json':
+        out = {
+            'task_id': task_result.task_id,
+            'route': task_result.route,
+            'success': task_result.success,
+            'duration_ms': task_result.duration_ms,
+            'data': task_result.data,
+        }
+        print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+    else:
+        print(f"Task: {task_result.task_id}")
+        print(f"Route: {task_result.route}")
+        print(f"Success: {task_result.success}")
+        print(f"Duration: {task_result.duration_ms:.1f}ms")
+        if task_result.data:
+            for k, v in task_result.data.items():
+                if k not in ('veins', 'themes', 'navigation_map'):
+                    print(f"  {k}: {v}")
 
-    elif args.command == "stats":
-        # Show stats from a core instance
-        core = SuperZCore(verbose=args.verbose)
-        # Simulate a few calls to demonstrate
-        core.run_skill("poler-psi", "test query")
-        core.run_skill("blog-writer", "test query")
-        core.run_skill("web-search", "test query")
-        print(core.cost_summary())
+def _print_analysis(result: Dict):
+    """ASCII вывод анализа."""
+    print("POLER[Ψ] v3.0 — Анализ документа")
+    print("=" * 50)
+    
+    domains = result.get('domains', [])
+    if domains:
+        print(f"\nДомены ({len(domains)}):")
+        for d in domains:
+            print(f"  {d['domain']:20s} confidence={d['confidence']:.2f}  hits={d['hits']}")
+    
+    veins = result.get('veins', [])
+    if veins:
+        print(f"\nВены ({len(veins)}):")
+        for i, v in enumerate(veins[:10], 1):
+            print(f"  {i}. [{v['domain']:15s}] {v['keyword']:20s}  "
+                  f"ε={v['epsilon_peak']:,.0f}  R={v['resonance_integral']:,.0f}")
+
+def _print_understand(result: Dict):
+    """ASCII вывод понимания."""
+    print("POLER[Ψ] — Быстрое понимание")
+    print("=" * 50)
+    
+    domains = result.get('domains', [])
+    if domains:
+        print(f"\nДомены:")
+        for d in domains:
+            markers = ', '.join(d['matched'][:3])
+            print(f"  {d['domain']:20s} ({d['confidence']:.2f}): {markers}")
+    
+    keywords = result.get('keywords', [])
+    if keywords:
+        print(f"\nКлючевые слова:")
+        for kw in keywords[:10]:
+            print(f"  {kw['word']:20s} freq={kw['freq']}  score={kw['score']:.2f}")
+
+if __name__ == '__main__':
+    main()
