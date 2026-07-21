@@ -484,6 +484,17 @@ def get_routing_decision(
 
     category = classify_skill(skill_name)
 
+    # Helper: support both config EnvironmentInfo (has can_reason_for_free)
+    # and core EnvironmentInfo (has has_callback) - compatibility layer
+    _can_reason_free = getattr(env_info, 'can_reason_for_free', None)
+    if _can_reason_free is None:
+        _can_reason_free = env_info.has_callback or env_info.type in (
+            EnvironmentType.LLM_NATIVE, EnvironmentType.HYBRID,
+        )
+    _can_call_apis = getattr(env_info, 'can_call_external_apis', None)
+    if _can_call_apis is None:
+        _can_call_apis = env_info.has_zai_cli or env_info.has_other_cli
+
     # LOCAL skills → always free, always possible
     if category == SkillCategory.LOCAL_EXEC:
         return RoutingDecision(
@@ -500,7 +511,15 @@ def get_routing_decision(
 
     # AI_REASONING skills → callback if available, CLI otherwise
     if category == SkillCategory.AI_REASONING:
-        if env_info.can_reason_for_free:
+        # Support both config EnvironmentInfo (has can_reason_for_free)
+        # and core EnvironmentInfo (has has_callback) via getattr
+        _can_reason_free = getattr(env_info, 'can_reason_for_free', None)
+        if _can_reason_free is None:
+            # Fallback for core EnvironmentInfo which lacks this property
+            _can_reason_free = env_info.has_callback or env_info.type in (
+                EnvironmentType.LLM_NATIVE, EnvironmentType.HYBRID,
+            )
+        if _can_reason_free:
             return RoutingDecision(
                 skill_name=skill_name,
                 category=category,
@@ -516,7 +535,7 @@ def get_routing_decision(
                 fallback="cli" if env_info.can_call_external_apis else "",
                 estimated_time="1-5s",
             )
-        elif env_info.can_call_external_apis:
+        elif _can_call_apis:
             return RoutingDecision(
                 skill_name=skill_name,
                 category=category,
@@ -551,7 +570,7 @@ def get_routing_decision(
 
     # EXTERNAL_API skills → need CLI, always paid
     if category == SkillCategory.EXTERNAL_API:
-        if env_info.can_call_external_apis:
+        if _can_call_apis:
             return RoutingDecision(
                 skill_name=skill_name,
                 category=category,
