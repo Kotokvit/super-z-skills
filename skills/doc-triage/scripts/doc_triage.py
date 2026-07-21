@@ -184,14 +184,55 @@ def extract_text(file_path: str, max_pages: int = 100) -> Tuple[str, Dict[str, A
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Summarize via poler-toolkit
+# Summarize via topic_local (LOCAL, no LLM) with poler-toolkit fallback
 # ─────────────────────────────────────────────────────────────────────
 
-def summarize_text(text: str) -> Tuple[Dict[str, Any], float]:
-    """Run poler-toolkit ingest.py on extracted text. Returns (summary, elapsed)."""
+# Try to import topic_local directly (same-process, faster)
+_TOPIC_LOCAL_DIR = SKILL_DIR.parent / "poler-toolkit" / "scripts"
+if str(_TOPIC_LOCAL_DIR) not in sys.path:
+    sys.path.insert(0, str(_TOPIC_LOCAL_DIR))
+
+try:
+    from topic_local import detect_topics as _topic_local_detect
+    _HAS_TOPIC_LOCAL = True
+except Exception as _e:
+    sys.stderr.write(f"[doc-triage] topic_local unavailable: {_e}\n")
+    _HAS_TOPIC_LOCAL = False
+
+
+def summarize_text(text: str, file_path: str = "") -> Tuple[Dict[str, Any], float]:
+    """Local-first summarization: topic_local TF-IDF (no LLM).
+    Falls back to poler-toolkit ingest.py if topic_local unavailable."""
     if not text or len(text) < 20:
         return {"theme": None, "keywords": [], "fallback": True}, 0.0
+
     t0 = time.time()
+
+    # ── PRIMARY: topic_local (in-process, 0 LLM tokens) ──
+    if _HAS_TOPIC_LOCAL and file_path:
+        try:
+            result = _topic_local_detect(file_path)
+            theme = result.get("overall_topic", "")
+            clusters = result.get("clusters", [])
+            # Extract keywords from cluster topics
+            keywords = []
+            for cl in clusters:
+                cl_topic = cl.get("topic", "")
+                for kw in cl_topic.split(","):
+                    kw = kw.strip()
+                    if kw and kw not in keywords and len(kw) > 2:
+                        keywords.append(kw)
+            return {
+                "theme": theme if theme else None,
+                "keywords": keywords[:10],
+                "clusters_count": len(clusters),
+                "method": result.get("method", "topic_local"),
+                "fallback": False,
+            }, time.time() - t0
+        except Exception as e:
+            sys.stderr.write(f"[doc-triage] topic_local error: {e}\n")
+
+    # ── FALLBACK: poler-toolkit ingest.py (may call LLM) ──
     try:
         # Pipe text via stdin
         cmd = [sys.executable, str(POLER_INGEST), "-", "--json"]
@@ -334,9 +375,9 @@ def triage(input_value: str, max_pages: int = 100,
     except Exception:
         pass
 
-    # 3. Summarize via poler-toolkit
+    # 3. Summarize via topic_local (local-first, no LLM)
     try:
-        summary, summarize_elapsed = summarize_text(text)
+        summary, summarize_elapsed = summarize_text(text, file_path=file_path or "")
     except Exception as e:
         summary = {"theme": None, "keywords": [], "fallback": True}
         summarize_elapsed = 0.0

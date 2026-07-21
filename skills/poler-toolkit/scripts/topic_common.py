@@ -35,6 +35,136 @@ except Exception:
     _HAS_POLER = False
 
 
+# ════════════════════════════════════════════════════════════════════════
+# LATEX STRIPPING — remove markup before TF-IDF analysis
+# ════════════════════════════════════════════════════════════════════════
+
+# LaTeX commands that produce no meaningful text (purely formatting)
+_LATEX_NOISE_COMMANDS = {
+    'qquad', 'quad', 'hfill', 'vfill', 'noindent', 'bigskip', 'medskip',
+    'smallskip', 'bigbreak', 'medbreak', 'smallbreak', 'allowbreak',
+    'linebreak', 'nolinebreak', 'pagebreak', 'nopagebreak', 'newpage',
+    'clearpage', 'cleardoublepage', 'newline', '\\', 'par', 'indent',
+    'centering', 'raggedright', 'raggedleft', 'normalsize', 'small',
+    'footnotesize', 'scriptsize', 'tiny', 'large', 'Large', 'LARGE',
+    'huge', 'Huge', 'rm', 'sf', 'tt', 'bf', 'it', 'sl', 'sc',
+    'cal', 'mit', 'displaystyle', 'textstyle', 'scriptstyle',
+    'left', 'right', 'middle', 'big', 'Big', 'bigg', 'Bigg',
+    'begin', 'end',  # environment markers — we handle these separately
+    'hline', 'cline', 'toprule', 'midrule', 'bottomrule',
+    'frac', 'dfrac', 'tfrac', 'sqrt', 'root',
+    'label', 'ref', 'eqref', 'cite', 'bibitem', 'index', 'glossary',
+    'footnote', 'marginpar', 'not', 'phantom', 'hphantom', 'vphantom',
+    'smash', 'boldsymbol', 'mathbf', 'mathcal', 'mathrm', 'mathbb',
+    'mathfrak', 'mathsf', 'mathtt', 'mathit', 'mathop', 'mathbin',
+    'mathrel', 'mathopen', 'mathclose', 'mathpunct', 'mathord',
+    'overline', 'underline', 'overrightarrow', 'overleftarrow',
+    'widetilde', 'widehat', 'overbrace', 'underbrace',
+    'dot', 'ddot', 'bar', 'vec', 'hat', 'tilde', 'breve', 'check',
+    'acute', 'grave', 'ddot',
+    'textbf', 'textit', 'textsf', 'textsl', 'textsc', 'texttt',
+    'textrm', 'emph', 'mbox', 'hbox', 'vbox',
+    'input', 'include', 'includegraphics', 'bibliography',
+    'bibliographystyle', 'usepackage', 'documentclass',
+    'pagestyle', 'thispagestyle', 'setlength', 'addtolength',
+    'setcounter', 'addtocounter', 'stepcounter', 'newcounter',
+    'newcommand', 'renewcommand', 'providecommand', 'def', 'let',
+    'newenvironment', 'renewenvironment',
+    'newtheorem', 'theoremstyle',
+    'title', 'author', 'date', 'thanks', 'maketitle', 'tableofcontents',
+    'appendix', 'frontmatter', 'mainmatter', 'backmatter',
+    'caption', 'subcaption', 'listoffigures', 'listoftables',
+    'center', 'flushleft', 'flushright', 'minipage', 'parbox',
+    'rule', 'hrule', 'vrule', 'strut', 'phantom',
+}
+
+_LATEX_ENVS_NOISE = {
+    'figure', 'figure*', 'table', 'table*', 'tabular', 'tabular*',
+    'array', 'tikzpicture', 'pspicture', 'picture',
+    'equation', 'equation*', 'align', 'align*', 'alignat', 'alignat*',
+    'gather', 'gather*', 'multline', 'multline*', 'eqnarray', 'eqnarray*',
+    'thebibliography', 'bibliography',
+}
+
+_LATEX_ENVS_CONTENT = {
+    'abstract', 'theorem', 'lemma', 'corollary', 'proposition',
+    'definition', 'example', 'remark', 'proof', 'conjecture',
+    'acknowledgments', 'acknowledgement',
+}
+
+
+def strip_latex(text: str) -> str:
+    """Remove LaTeX markup, keeping readable prose text.
+
+    Strategy:
+      1. Remove comment lines (%...)
+      2. Remove noise environments entirely (tikzpicture, figure, equation, tabular...)
+      3. Remove \\command{...} where command is noise, keep {content} for content commands
+      4. Remove $...$ and $$...$$ math mode
+      5. Remove remaining \command (bare commands)
+      6. Remove { } braces
+      7. Collapse whitespace
+
+    Returns stripped text suitable for TF-IDF analysis.
+    """
+    if not text:
+        return text
+
+    # 1. Remove comment lines (% to end of line, but not \%)
+    text = re.sub(r'(?<!\\)%.*$', '', text, flags=re.MULTILINE)
+
+    # 2. Remove noise environments entirely
+    for env in _LATEX_ENVS_NOISE:
+        # \begin{env} ... \end{env}
+        pattern = re.compile(
+            r'\\begin\s*\{' + re.escape(env) + r'\*?\}.*?\\end\s*\{' + re.escape(env) + r'\*?\}',
+            re.DOTALL
+        )
+        text = pattern.sub(' ', text)
+
+    # 3. For content environments, keep the body but remove \begin/\end markers
+    for env in _LATEX_ENVS_CONTENT:
+        text = re.sub(r'\\begin\s*\{' + re.escape(env) + r'\*?\}', ' ', text)
+        text = re.sub(r'\\end\s*\{' + re.escape(env) + r'\*?\}', ' ', text)
+
+    # 4. Remove math modes: $$...$$ then $...$
+    text = re.sub(r'\$\$.*?\$\$', ' ', text, flags=re.DOTALL)
+    text = re.sub(r'\$.*?\$', ' ', text)
+
+    # Also handle \(...\) and \[...\]
+    text = re.sub(r'\\\(|\\\)', ' ', text)
+    text = re.sub(r'\\\[.*?\\\]', ' ', text, flags=re.DOTALL)
+
+    # 5. Remove \command{arg} — keep arg for text commands, remove for noise commands
+    # First pass: noise commands — remove entire \cmd{arg}
+    for cmd in _LATEX_NOISE_COMMANDS:
+        # \cmd{...} — remove everything including braces content
+        text = re.sub(r'\\' + re.escape(cmd) + r'\s*\{[^}]*\}', ' ', text)
+        # \cmd without braces — remove
+        text = re.sub(r'\\' + re.escape(cmd) + r'(?![a-zA-Z])', ' ', text)
+
+    # Second pass: text commands that have meaningful content — keep the arg
+    text_commands = {'section', 'subsection', 'subsubsection', 'chapter', 'paragraph',
+                     'text', 'footnotetext', 'title', 'author'}
+    for cmd in text_commands:
+        # Replace \cmd{content} → content
+        text = re.sub(r'\\' + re.escape(cmd) + r'\*?\s*\{([^}]*)\}', r'\1', text)
+
+    # 6. Remove remaining \command (bare LaTeX commands)
+    text = re.sub(r'\\[a-zA-Z]+\*?(?:\[[^\]]*\])?', ' ', text)
+
+    # 7. Remove { } braces
+    text = re.sub(r'[{}]', ' ', text)
+
+    # 8. Remove leftover special chars
+    text = re.sub(r'[~^_&]', ' ', text)
+
+    # 9. Collapse whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    return text
+
+
 def read_text(path: str) -> str:
     """Читает файл любого поддерживаемого типа → str.
 
