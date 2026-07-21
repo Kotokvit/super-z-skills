@@ -1,6 +1,11 @@
 """
 bridge.py — Bridge between llm_wrapper.py and the Sandbox Backend.
 
+LOCAL-FIRST ROUTING (v3, super_z_core integration):
+    1. Check if skill can run LOCALLY (Python/Bash, free)
+    2. Check if AI callback is available (free, in-process)
+    3. Only then fall back to CLI (paid)
+
 DEFAULT (v2): Observer + POLER + Sandbox — token-efficient
     1 LLM call for generation + optional Observer binary checks
     Total: 1-3 LLM calls, ~500-1500 tokens, 3-15s
@@ -11,12 +16,13 @@ LEGACY (v1): 4-agent chain — Planner→Executor→Reviewer→Critic
 
 Configuration:
     Set SUPER_Z_BACKEND env var:
-        "sandbox-v2" or "sandbox" → Observer + POLER (default, token-efficient)
+        "local-first" or "super-z" → Local-First routing (recommended)
+        "sandbox-v2" or "sandbox" → Observer + POLER (token-efficient)
         "sandbox-v1" or "sandbox-legacy" → 4-agent chain (legacy)
         "mock" → mock responses (testing)
 
+    Set SUPER_Z_HOST_LLM_CALLBACK env var for free AI callback.
     Set SUPER_Z_HOST_LLM env var to override the host LLM command.
-    Default: z-ai CLI
 """
 from __future__ import annotations
 
@@ -34,6 +40,17 @@ from backend import SandboxBackend
 from llm_provider import (
     LLMProvider, HostLLMProvider, MockLLMProvider,
 )
+
+# Import Super Z Core for Local-First routing
+try:
+    from super_z_core import (
+        SuperZCore, run_skill_local_first, get_backend_type_routing,
+        detect_environment, EnvironmentInfo, EnvironmentType,
+        classify_skill, SkillCategory,
+    )
+    _HAS_SUPER_Z_CORE = True
+except ImportError:
+    _HAS_SUPER_Z_CORE = False
 
 
 # ─── Module-level singletons ─────────────────────────────────────────────
@@ -120,15 +137,15 @@ def _get_v1_backend(
 def _detect_host_llm_provider() -> LLMProvider:
     """Detect which LLM provider to use for sandbox agents.
 
-    Priority:
-        1. SUPER_Z_HOST_LLM_CALLBACK env var (Python import path)
-        2. SUPER_Z_HOST_LLM env var (CLI command)
-        3. Default: z-ai CLI
+    LOCAL-FIRST priority (CHANGED from old default of z-ai CLI):
+        1. SUPER_Z_HOST_LLM_CALLBACK env var (Python import path) → FREE
+        2. SUPER_Z_HOST_LLM env var (CLI command) → paid
+        3. z-ai CLI (last resort) → paid
 
     Returns:
         LLMProvider instance.
     """
-    # Check for callback (Python import path like "mymodule.my_llm_func")
+    # Priority 1: Python callback (FREE, in-process)
     callback_path = os.environ.get("SUPER_Z_HOST_LLM_CALLBACK", "")
     if callback_path:
         try:
@@ -136,31 +153,50 @@ def _detect_host_llm_provider() -> LLMProvider:
             import importlib
             module = importlib.import_module(module_path)
             callback = getattr(module, func_name)
+            sys.stderr.write("[bridge] Using host callback (FREE)\n")
             return HostLLMProvider(callback=callback)
         except Exception as e:
             sys.stderr.write(f"[bridge] Failed to load callback {callback_path}: {e}\n")
 
-    # Check for CLI command
+    # Priority 2: Custom CLI command
     cli_command = os.environ.get("SUPER_Z_HOST_LLM", "")
     if cli_command:
+        sys.stderr.write(f"[bridge] Using CLI: {cli_command} (PAID)\n")
         return HostLLMProvider(cli_command=cli_command)
 
-    # Default: z-ai CLI
-    return HostLLMProvider.from_zai_cli()
+    # Priority 3: z-ai CLI — LAST RESORT (paid, was the old default)
+    import shutil
+    if shutil.which("z-ai"):
+        sys.stderr.write(
+            "[bridge] WARNING: Falling back to z-ai CLI (PAID calls). "
+            "Set SUPER_Z_HOST_LLM_CALLBACK for free execution.\n"
+        )
+        return HostLLMProvider.from_zai_cli()
+
+    # No provider available
+    sys.stderr.write(
+        "[bridge] No LLM provider available. "
+        "Set SUPER_Z_HOST_LLM_CALLBACK or install z-ai CLI.\n"
+    )
+    return HostLLMProvider()  # Empty provider, will return None on calls
 
 
 def _detect_backend_type() -> str:
     """Detect backend type from env var.
 
     Returns:
-        "v2" (default), "v1", or "mock"
+        "local-first", "v2", "v1", or "mock"
     """
     env_backend = os.environ.get("SUPER_Z_BACKEND", "").lower()
+    if env_backend in ("local-first", "super-z", "local", "core"):
+        return "local-first"
     if env_backend in ("sandbox-v1", "v1", "legacy", "sandbox-legacy"):
         return "v1"
     if env_backend in ("mock", "test", "dry"):
         return "mock"
-    # Default to v2 (token-efficient)
+    # Default: local-first when super_z_core is available, v2 otherwise
+    if _HAS_SUPER_Z_CORE:
+        return "local-first"
     return "v2"
 
 
@@ -174,13 +210,17 @@ def call_sandbox_chat(
     timeout_sec: int = 120,
     verbose: bool = False,
     llm_provider: Optional[LLMProvider] = None,
-    backend: str = "v2",
+    backend: str = "auto",
     use_observer: bool = False,
+    llm_callback: Optional[Callable] = None,
 ) -> Optional[str]:
     """Drop-in replacement for call_z_ai_chat() in llm_wrapper.py.
 
-    v2 (default): Observer + POLER — 1-3 LLM calls, ~500-1500 tokens
-    v1 (legacy): 4-agent chain — 4-12 LLM calls, ~5000-15000 tokens
+    LOCAL-FIRST (new default): Checks if task can run locally first,
+    then AI callback, then CLI. Saves money on 90% of tasks.
+
+    v2 (Observer+POLER): 1-3 LLM calls, ~500-1500 tokens
+    v1 (legacy): 4-12 LLM calls, ~5000-15000 tokens
 
     Args:
         system_prompt: The system prompt (usually SKILL.md content).
@@ -190,22 +230,64 @@ def call_sandbox_chat(
         timeout_sec: Timeout per LLM call.
         verbose: Print debug information.
         llm_provider: Optional LLMProvider override.
-        backend: "v2" (default), "v1", or "mock".
+        backend: "auto" (local-first), "v2", "v1", or "mock".
         use_observer: Enable Observer binary checks (v2 only).
+        llm_callback: Python callable for free in-process LLM calls.
 
     Returns:
         Text string (same format as LLM response), or None on failure.
     """
+    # Resolve "auto" to the best backend for the environment
+    resolved_backend = backend
+    if backend == "auto":
+        resolved_backend = _detect_backend_type()
+
+    # Local-First routing via super_z_core
+    if resolved_backend == "local-first" and _HAS_SUPER_Z_CORE:
+        try:
+            result = run_skill_local_first(
+                skill_name=skill_name,
+                user_query=user_prompt,
+                skill_md=skill_md or system_prompt,
+                system_prompt=system_prompt,
+                llm_callback=llm_callback,
+                verbose=verbose,
+            )
+            if result is not None:
+                if verbose:
+                    print("[bridge] Local-First routing: task completed optimally",
+                          file=sys.stderr)
+                return result
+            # If local-first returned None, fall through to sandbox
+            if verbose:
+                print("[bridge] Local-First: falling back to sandbox backend",
+                      file=sys.stderr)
+        except Exception as e:
+            if verbose:
+                print(f"[bridge] Local-First error: {e}, falling back to sandbox",
+                      file=sys.stderr)
+
+    # Original sandbox path
     try:
         skill_context = {
             "skill_name": skill_name,
             "skill_md": skill_md or system_prompt,
         }
 
+        # Use local-first provider detection if available
+        provider = llm_provider
+        if provider is None and _HAS_SUPER_Z_CORE:
+            from super_z_core import create_llm_provider
+            env_info = detect_environment(llm_callback=llm_callback)
+            provider = create_llm_provider(
+                env_info=env_info,
+                llm_callback=llm_callback,
+            )
+
         be = get_backend(
-            backend_type=backend,
+            backend_type=resolved_backend if resolved_backend != "local-first" else "v2",
             skill_context=skill_context,
-            llm_provider=llm_provider,
+            llm_provider=provider,
             verbose=verbose,
             use_observer=use_observer,
         )
@@ -304,5 +386,7 @@ def get_current_backend_type() -> str:
             except Exception:
                 pass
 
-    # Default: v2 (token-efficient)
+    # Default: local-first when super_z_core is available, v2 otherwise
+    if _HAS_SUPER_Z_CORE:
+        return "local-first"
     return "v2"

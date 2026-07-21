@@ -6,13 +6,17 @@ Many skills in the registry consist of only a SKILL.md (methodology doc) without
 any executable code. This wrapper turns such a skill into an executable by:
 
   1. Reading the skill's SKILL.md → using it as the SYSTEM prompt
-  2. Forwarding the user's query to z-ai chat CLI
+  2. Routing the query through Local-First engine (free → cheap → paid)
   3. Wrapping the LLM response in a Pattern 1 source-grounded brief
      (single claim citing the SKILL.md as the source of methodology)
 
-This lets us register 10+ docs-only skills as executable overnight, without
-writing bespoke Python for each. The agent gets the LLM's output pre-formatted
-as a brief with citations, ready to merge into context_brief.json.
+LOCAL-FIRST ROUTING (new default):
+    The wrapper now uses super_z_core for routing:
+    - LOCAL skills → Python/Bash (FREE, instant)
+    - AI_REASONING skills → host callback (FREE) or CLI (PAID)
+    - EXTERNAL_API skills → CLI only (PAID, no alternative)
+
+    Set SUPER_Z_HOST_LLM_CALLBACK for free in-process execution.
 
 Usage (called by each skill's run.py):
     from llm_wrapper import run_skill
@@ -26,10 +30,14 @@ Or as a CLI directly:
     python3 llm_wrapper.py --skill blog-writer --query "write a post about X"
 
 Backend selection:
-    # Default: use z-ai CLI
+    # Default: Local-First routing (recommended, saves money)
     python3 llm_wrapper.py --skill blog-writer --query "..."
 
-    # Sandbox mode: internal agent chain (no external LLM)
+    # Force z-ai CLI (paid)
+    SUPER_Z_BACKEND=zai_cli python3 llm_wrapper.py --skill blog-writer --query "..."
+    python3 llm_wrapper.py --skill blog-writer --query "..." --backend zai_cli
+
+    # Sandbox mode: internal agent chain
     SUPER_Z_BACKEND=sandbox python3 llm_wrapper.py --skill blog-writer --query "..."
     python3 llm_wrapper.py --skill blog-writer --query "..." --backend sandbox
 
@@ -193,11 +201,12 @@ def build_pattern1_brief(
 def _detect_backend(override: Optional[str] = None) -> str:
     """Detect which LLM backend to use.
 
-    Priority:
+    LOCAL-FIRST priority (CHANGED: default is now "local-first", not "zai_cli"):
         1. Explicit override (CLI --backend flag)
         2. SUPER_Z_BACKEND env var
-        3. config.toml [llm] backend
-        4. Default: "zai_cli"
+        3. Default: "local-first" (uses super_z_core routing)
+
+    The old default "zai_cli" is now the LAST resort, not the first.
     """
     # 1. Explicit override
     if override:
@@ -205,15 +214,48 @@ def _detect_backend(override: Optional[str] = None) -> str:
 
     # 2. Environment variable
     env_backend = os.environ.get("SUPER_Z_BACKEND", "").lower()
-    if env_backend in ("sandbox", "local", "internal", "agents"):
+    if env_backend in ("local-first", "super-z", "local", "core", "auto"):
+        return "local-first"
+    if env_backend in ("sandbox", "internal", "agents"):
         return "sandbox"
     if env_backend in ("mock", "test", "dry", "dummy"):
         return "mock"
     if env_backend in ("zai", "zai_cli", "z-ai"):
         return "zai_cli"
 
-    # 3. Default
-    return "zai_cli"
+    # 3. Default: local-first (saves money!)
+    return "local-first"
+
+
+def _call_local_first(system_prompt: str, user_prompt: str,
+                      skill_name: str, skill_md: str,
+                      skill_dir: Optional[str] = None) -> Optional[str]:
+    """Route through Local-First engine (super_z_core).
+
+    This is the NEW default routing. Checks:
+    1. Can we do this locally? (FREE)
+    2. Is there a host AI callback? (FREE)
+    3. Fall back to CLI (PAID)
+    """
+    try:
+        # Import super_z_core
+        core_path = Path(__file__).resolve().parent / "sandbox"
+        if str(core_path) not in sys.path:
+            sys.path.insert(0, str(core_path))
+        from super_z_core import run_skill_local_first
+        return run_skill_local_first(
+            skill_name=skill_name,
+            user_query=user_prompt,
+            skill_md=skill_md,
+            skill_dir=skill_dir,
+            system_prompt=system_prompt,
+        )
+    except ImportError:
+        sys.stderr.write("[llm_wrapper] super_z_core not available, falling back to sandbox\n")
+        return _call_sandbox(system_prompt, user_prompt, skill_name, skill_md)
+    except Exception as e:
+        sys.stderr.write(f"[llm_wrapper] local-first error: {e}, falling back to sandbox\n")
+        return _call_sandbox(system_prompt, user_prompt, skill_name, skill_md)
 
 
 def _call_sandbox(system_prompt: str, user_prompt: str,
@@ -302,13 +344,18 @@ def run_skill(skill_name: str, user_query: Optional[str] = None,
 
     # Route to the appropriate backend
     t0 = time.time()
-    if active_backend == "sandbox":
+    if active_backend == "local-first":
+        llm_response = _call_local_first(
+            system_prompt, user_prompt, skill_name, skill_md_text,
+            str(skill_dir) if skill_dir else None,
+        )
+    elif active_backend == "sandbox":
         llm_response = _call_sandbox(
             system_prompt, user_prompt, skill_name, skill_md_text
         )
     elif active_backend == "mock":
         llm_response = _call_mock(system_prompt, user_prompt, skill_name)
-    else:  # zai_cli (default)
+    else:  # zai_cli (paid, last resort)
         llm_response = call_z_ai_chat(system_prompt, user_prompt, timeout_sec=120)
     elapsed = time.time() - t0
 
@@ -343,8 +390,8 @@ def main():
     ap.add_argument("--json", action="store_true", default=True,
                     help="Output as Pattern 1 brief JSON (default)")
     ap.add_argument("--backend", default=None,
-                    choices=["zai_cli", "sandbox", "mock"],
-                    help="LLM backend: zai_cli (default), sandbox (internal agents), mock (placeholder)")
+                    choices=["local-first", "zai_cli", "sandbox", "mock"],
+                    help="LLM backend: local-first (default, saves money), zai_cli (paid), sandbox (internal agents), mock (placeholder)")
     args = ap.parse_args()
 
     result = run_skill(args.skill, user_query=args.query, json_output=args.json,
