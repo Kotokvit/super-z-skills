@@ -33,9 +33,15 @@ CLASSIFICATION OF SKILLS:
 
 ENVIRONMENT DETECTION:
     The module auto-detects its runtime environment:
-    - "ai_platform" → Running inside an AI (callback available)
+    - "llm_native"  → Running inside an AI (callback available)
+    - "hybrid"      → Inside AI + CLI available
     - "local_cli"   → Running standalone with z-ai CLI
     - "standalone"  → No AI, no CLI (local skills only)
+
+SUPPORTED MODULES (v2 architecture):
+    super_z_config.py      → Environment auto-detection
+    super_z_bridge.py      → AI native tool adapter
+    super_z_llm_callback.py → Free LLM reasoning provider
 
 USAGE:
     from super_z_core import SuperZCore
@@ -55,10 +61,10 @@ USAGE:
 
     # Check what environment was detected
     env = core.detect_environment()
-    print(env)  # {"type": "ai_platform", "provider": "host_callback", ...}
+    print(env)  # {"type": "llm_native", "provider": "host_callback", ...}
 
-Author: Super-Z team, 2026-07-21
-Version: 1.0.0
+Author: Super-Z team + Qwen Coder, 2026-07-21
+Version: 2.0.0
 """
 from __future__ import annotations
 
@@ -73,14 +79,52 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+# ── Import new v2 modules (super_z_config, super_z_bridge, super_z_llm_callback) ──
+try:
+    from super_z_config import (
+        EnvironmentType as _ConfigEnvType,
+        EnvironmentInfo as _ConfigEnvInfo,
+        SkillCategory as _ConfigSkillCategory,
+        detect_environment as _config_detect_environment,
+        classify_skill as _config_classify_skill,
+        get_routing_decision as _config_get_routing_decision,
+        LOCAL_SKILLS as _CONFIG_LOCAL_SKILLS,
+        EXTERNAL_SKILLS as _CONFIG_EXTERNAL_SKILLS,
+    )
+    _HAS_SUPER_Z_CONFIG = True
+except ImportError:
+    _HAS_SUPER_Z_CONFIG = False
 
-__version__ = "1.0.0"
-__author__ = "Super-Z team"
+try:
+    from super_z_bridge import (
+        AIBridge,
+        get_bridge as _get_bridge,
+        bridge_execute_poler as _bridge_execute_poler,
+        bridge_execute_skill as _bridge_execute_skill,
+    )
+    _HAS_SUPER_Z_BRIDGE = True
+except ImportError:
+    _HAS_SUPER_Z_BRIDGE = False
+
+try:
+    from super_z_llm_callback import (
+        LLMCallbackProvider,
+        get_callback_provider as _get_callback_provider,
+        execute_with_callback as _execute_with_callback,
+        execute_poler as _execute_poler,
+        create_llm_callback_for_core as _create_llm_callback_for_core,
+    )
+    _HAS_SUPER_Z_LLM_CALLBACK = True
+except ImportError:
+    _HAS_SUPER_Z_LLM_CALLBACK = False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Skill Classification — which skills need what?
 # ═══════════════════════════════════════════════════════════════════════════
+# NOTE: When super_z_config is available, classification is delegated there.
+# These local definitions are kept for backward compatibility when
+# super_z_config is not importable.
 
 class SkillCategory(Enum):
     """Classification of skill resource requirements."""
@@ -97,6 +141,9 @@ LOCAL_SKILLS: set = {
     "cheat-sheet",      # Template generation (structured output)
     "version-management",  # Version tracking (file ops)
     "pdf-ocr",          # OCR extraction (local tool)
+    "file-ops",         # File operations (read/write/transform)
+    "text-analysis",    # Text analysis (regex, counters)
+    "data-transform",   # Data transformation (JSON, CSV)
 }
 
 # Skills that NEED external APIs — always require CLI/network
@@ -115,6 +162,11 @@ EXTERNAL_SKILLS: set = {
     "LLM",                  # Direct LLM chat
 }
 
+# Sync LOCAL_SKILLS/EXTERNAL_SKILLS with super_z_config if available
+if _HAS_SUPER_Z_CONFIG:
+    LOCAL_SKILLS = LOCAL_SKILLS | _CONFIG_LOCAL_SKILLS
+    EXTERNAL_SKILLS = EXTERNAL_SKILLS | _CONFIG_EXTERNAL_SKILLS
+
 # Everything else = AI_REASONING (needs LLM but not external API)
 # This includes: blog-writer, contentanalysis, finance, design, etc.
 
@@ -122,12 +174,26 @@ EXTERNAL_SKILLS: set = {
 def classify_skill(skill_name: str) -> SkillCategory:
     """Classify a skill by its resource requirements.
 
+    Delegates to super_z_config.classify_skill() when available,
+    otherwise uses local classification logic.
+
     Args:
         skill_name: Name of the skill.
 
     Returns:
         SkillCategory indicating what resources the skill needs.
     """
+    # Delegate to super_z_config if available (maps LOCAL_EXEC → LOCAL)
+    if _HAS_SUPER_Z_CONFIG:
+        config_category = _config_classify_skill(skill_name)
+        # Map config categories to core categories
+        if config_category == _ConfigSkillCategory.LOCAL_EXEC:
+            return SkillCategory.LOCAL
+        if config_category == _ConfigSkillCategory.EXTERNAL_API:
+            return SkillCategory.EXTERNAL_API
+        return SkillCategory.AI_REASONING
+
+    # Fallback: local classification
     if skill_name in LOCAL_SKILLS:
         return SkillCategory.LOCAL
     if skill_name in EXTERNAL_SKILLS:
@@ -138,6 +204,8 @@ def classify_skill(skill_name: str) -> SkillCategory:
 # ═══════════════════════════════════════════════════════════════════════════
 # Environment Detection — where are we running?
 # ═══════════════════════════════════════════════════════════════════════════
+# NOTE: When super_z_config is available, detection is delegated there
+# for richer environment info (HYBRID mode, AI platform heuristics, etc.)
 
 class EnvironmentType(Enum):
     """Runtime environment types."""
@@ -167,6 +235,11 @@ def detect_environment(
 ) -> EnvironmentInfo:
     """Auto-detect the runtime environment.
 
+    Delegates to super_z_config.detect_environment() when available,
+    which provides richer detection (HYBRID mode, AI platform heuristics).
+
+    Falls back to local detection logic when super_z_config is not available.
+
     Priority:
         1. If an LLM callback is provided → AI_PLATFORM
         2. If SUPER_Z_HOST_LLM_CALLBACK env → AI_PLATFORM
@@ -179,6 +252,30 @@ def detect_environment(
     Returns:
         EnvironmentInfo with detected details.
     """
+    # Delegate to super_z_config if available (richer detection)
+    if _HAS_SUPER_Z_CONFIG:
+        config_info = _config_detect_environment(llm_callback=llm_callback)
+        # Map config EnvironmentType to core EnvironmentType
+        type_mapping = {
+            _ConfigEnvType.LLM_NATIVE: EnvironmentType.AI_PLATFORM,
+            _ConfigEnvType.HYBRID: EnvironmentType.AI_PLATFORM,
+            _ConfigEnvType.LOCAL_CLI: EnvironmentType.LOCAL_CLI,
+            _ConfigEnvType.STANDALONE: EnvironmentType.STANDALONE,
+        }
+        core_type = type_mapping.get(config_info.type, EnvironmentType.STANDALONE)
+
+        return EnvironmentInfo(
+            type=core_type,
+            has_callback=config_info.has_callback,
+            has_zai_cli=config_info.has_zai_cli,
+            has_other_cli=config_info.has_other_cli,
+            cli_path=config_info.cli_path,
+            provider_name=config_info.provider_name,
+            hostname=config_info.hostname,
+            is_container=config_info.is_container,
+        )
+
+    # Fallback: local detection (when super_z_config not available)
     import socket
 
     info = EnvironmentInfo()
@@ -242,6 +339,9 @@ def detect_environment(
 # ═══════════════════════════════════════════════════════════════════════════
 # Local Executor — runs Python/Bash tasks without any LLM
 # ═══════════════════════════════════════════════════════════════════════════
+# NOTE: When super_z_bridge is available, it handles POLER and skill
+# execution with the AI's native tools (Read/Write/Bash). This makes
+# local execution even more powerful inside an AI platform.
 
 class LocalExecutor:
     """Execute tasks that don't need an LLM — pure Python/Bash.
@@ -249,14 +349,36 @@ class LocalExecutor:
     This is the "free tier" of Super Z. No API calls, no tokens,
     no latency beyond computation time.
 
+    When super_z_bridge is available, it delegates to AIBridge which
+    can use the AI's native tools (Bash, Read, Write) for richer
+    execution capabilities.
+
     Supported operations:
-    - File read/write/transform
+    - File read/write/transform (via AI's native tools or Python)
     - Text analysis (regex, counters, parsers)
     - Data processing (JSON, CSV, etc.)
-    - POLER text resonance analysis
+    - POLER text resonance analysis (via bridge or direct import)
     - Document diffing
     - Script execution (subprocess)
     """
+
+    def __init__(self, bridge: Optional[Any] = None):
+        """Initialize with optional bridge.
+
+        Args:
+            bridge: AIBridge instance (from super_z_bridge). If not provided,
+                    will try to create one or use direct Python methods.
+        """
+        self._bridge = bridge
+
+    def _get_bridge(self) -> Optional[Any]:
+        """Get or create bridge instance."""
+        if self._bridge is not None:
+            return self._bridge
+        if _HAS_SUPER_Z_BRIDGE:
+            self._bridge = _get_bridge()
+            return self._bridge
+        return None
 
     def can_handle(self, skill_name: str, query: str) -> bool:
         """Check if this skill+query can be handled locally.
@@ -295,6 +417,10 @@ class LocalExecutor:
     ) -> Optional[str]:
         """Execute a local task.
 
+        Delegates to super_z_bridge when available for richer execution
+        (AI's native tools, direct POLER import). Falls back to direct
+        Python/subprocess when bridge is not available.
+
         Args:
             skill_name: Name of the skill.
             query: User's query text.
@@ -305,7 +431,23 @@ class LocalExecutor:
         Returns:
             Result text, or None if the task cannot be done locally.
         """
-        # Try to find and run the skill's own script
+        # Priority 1: Use bridge if available (AI native tools + POLER)
+        bridge = self._get_bridge()
+        if bridge is not None:
+            try:
+                result = bridge.execute_skill(
+                    skill_name=skill_name,
+                    query=query,
+                    skill_md=skill_md,
+                    skill_dir=str(skill_dir) if skill_dir else None,
+                    timeout_sec=timeout_sec,
+                )
+                if result is not None:
+                    return result
+            except Exception as e:
+                pass  # Bridge failed, try local methods
+
+        # Priority 2: Try to find and run the skill's own script
         if skill_dir:
             run_py = skill_dir / "scripts" / "run.py"
             if run_py.exists():
@@ -658,10 +800,46 @@ class SuperZCore:
     ) -> Optional[str]:
         """Execute a task using LLM (callback or CLI).
 
-        Uses SandboxV2 (Observer+POLER) when available for token efficiency.
+        Routing priority (NEW with v2 modules):
+            1. super_z_llm_callback (FREE if callback available)
+            2. SandboxV2 (Observer+POLER, token-efficient)
+            3. Direct LLM call (provider.chat)
+
+        Uses super_z_llm_callback when available for FREE AI reasoning.
+        Falls back to SandboxV2 for token efficiency.
         Falls back to direct LLM call when sandbox is not available.
         """
-        # Try SandboxV2 first (more efficient)
+        # Build the system prompt
+        sp = system_prompt or (
+            f"You are the '{skill_name}' skill. "
+            f"Follow the methodology strictly. "
+            f"Respond in the user's language."
+        )
+        if skill_md and not system_prompt:
+            sp += f"\n\n--- SKILL.md ---\n{skill_md[:3000]}\n--- END ---"
+
+        # Priority 1: Use super_z_llm_callback (FREE with callback)
+        if _HAS_SUPER_Z_LLM_CALLBACK:
+            try:
+                result = _execute_with_callback(
+                    skill_name=skill_name,
+                    system_prompt=sp,
+                    user_prompt=query,
+                    llm_callback=self._llm_callback,
+                    timeout_sec=timeout_sec,
+                    verbose=self.verbose,
+                )
+                if result is not None:
+                    if self.verbose:
+                        print(f"[super_z_core] LLM via callback: {skill_name} "
+                              f"(FREE)", file=sys.stderr)
+                    return result
+            except Exception as e:
+                if self.verbose:
+                    print(f"[super_z_core] LLM callback failed: {e}",
+                          file=sys.stderr)
+
+        # Priority 2: Try SandboxV2 (more efficient than direct call)
         try:
             sandbox = self._get_sandbox_v2()
             if sandbox:
@@ -684,17 +862,9 @@ class SuperZCore:
             if self.verbose:
                 print(f"[super_z_core] SandboxV2 failed: {e}", file=sys.stderr)
 
-        # Direct LLM call (fallback)
+        # Priority 3: Direct LLM call (fallback)
         provider = self._get_llm_provider()
         if provider:
-            sp = system_prompt or (
-                f"You are the '{skill_name}' skill. "
-                f"Follow the methodology strictly. "
-                f"Respond in the user's language."
-            )
-            if skill_md and not system_prompt:
-                sp += f"\n\n--- SKILL.md ---\n{skill_md[:3000]}\n--- END ---"
-
             return provider.chat(sp, query, timeout_sec=timeout_sec)
 
         return None
