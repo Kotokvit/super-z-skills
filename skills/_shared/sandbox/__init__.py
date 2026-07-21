@@ -36,11 +36,11 @@ Usage (v1 — legacy, kept for compatibility):
 """
 
 # v2 — Observer + POLER (DEFAULT, token-efficient)
-from sandbox.sandbox_v2 import SandboxV2, Observer, PolerContextExtractor
+from sandbox_v2 import SandboxV2, Observer, PolerContextExtractor
 
 # v1 — Legacy 4-agent chain (kept for backward compatibility)
-from sandbox.backend import SandboxBackend
-from sandbox.agents import (
+from backend import SandboxBackend
+from agents import (
     Agent,
     PlannerAgent,
     ExecutorAgent,
@@ -51,7 +51,7 @@ from sandbox.agents import (
 )
 
 # Shared components
-from sandbox.llm_provider import (
+from llm_provider import (
     LLMProvider,
     HostLLMProvider,
     MockLLMProvider,

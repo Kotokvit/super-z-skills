@@ -29,9 +29,9 @@ from typing import Any, Callable, Dict, Optional
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from sandbox.sandbox_v2 import SandboxV2
-from sandbox.backend import SandboxBackend
-from sandbox.llm_provider import (
+from sandbox_v2 import SandboxV2
+from backend import SandboxBackend
+from llm_provider import (
     LLMProvider, HostLLMProvider, MockLLMProvider,
 )
 

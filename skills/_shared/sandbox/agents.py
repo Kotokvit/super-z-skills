@@ -33,7 +33,7 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional
 
-from sandbox.llm_provider import LLMProvider
+from llm_provider import LLMProvider
 
 
 # ─── Agent Role Enum ────────────────────────────────────────────────────

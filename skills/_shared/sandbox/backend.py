@@ -42,14 +42,14 @@ import sys
 import time
 from typing import Any, Dict, List, Optional
 
-from sandbox.agents import (
+from agents import (
     PlannerAgent,
     ExecutorAgent,
     ReviewerAgent,
     CriticAgent,
     AgentMessage,
 )
-from sandbox.llm_provider import LLMProvider, HostLLMProvider, MockLLMProvider
+from llm_provider import LLMProvider, HostLLMProvider, MockLLMProvider
 
 
 # ─── Sandbox Backend ────────────────────────────────────────────────────
