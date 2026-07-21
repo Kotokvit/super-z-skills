@@ -652,10 +652,13 @@ class Planner:
 
 def main() -> int:
     import argparse
+    from pathlib import Path
+    project_root = Path(__file__).resolve().parents[3]
+    default_skills = project_root / "skills"
     ap = argparse.ArgumentParser(description="Plan skill execution DAG")
     ap.add_argument("query", help="User query in natural language")
     ap.add_argument("--input", help="Input file path (for extension-based matching)")
-    ap.add_argument("--skills-dir", default="/home/z/my-project/skills")
+    ap.add_argument("--skills-dir", default=str(default_skills))
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--verbose", "-v", action="store_true")
     ap.add_argument("--classify", action="store_true",

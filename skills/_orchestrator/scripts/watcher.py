@@ -70,8 +70,9 @@ from executor import Executor  # noqa: E402
 # Default paths
 # ─────────────────────────────────────────────────────────────────────
 
-DEFAULT_SKILLS_DIR = Path("/home/z/my-project/skills")
-DEFAULT_BRIEF_FILE = Path("/home/z/my-project/.context/context_brief.json")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_SKILLS_DIR = PROJECT_ROOT / "skills"
+DEFAULT_BRIEF_FILE = PROJECT_ROOT / ".context" / "context_brief.json"
 DEFAULT_BRIEF_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # How many recent entries to keep in context_brief

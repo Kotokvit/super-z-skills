@@ -74,7 +74,7 @@ from watcher import ConversationWatcher, DEFAULT_BRIEF_FILE  # noqa: E402
 # Paths and constants
 # ─────────────────────────────────────────────────────────────────────
 
-PROJECT_ROOT = Path("/home/z/my-project")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 INBOX_DIR = PROJECT_ROOT / ".context" / "inbox"
 PROCESSED_DIR = INBOX_DIR / "processed"
 FAILED_DIR = INBOX_DIR / "failed"

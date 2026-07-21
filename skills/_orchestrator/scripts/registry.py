@@ -248,8 +248,10 @@ class SkillRegistry:
 
 def main() -> int:
     import argparse
+    project_root = Path(__file__).resolve().parents[3]
+    default_skills = project_root / "skills"
     ap = argparse.ArgumentParser(description="Skill registry CLI")
-    ap.add_argument("--skills-dir", default="/home/z/my-project/skills")
+    ap.add_argument("--skills-dir", default=str(default_skills))
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list", help="List all registered skills")

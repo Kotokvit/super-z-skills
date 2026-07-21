@@ -98,8 +98,8 @@ ok "Using Python: $PYTHON"
 # ─── Step 4: Install Python dependencies ────────────────────────────────
 log "Step 4/6: Installing Python dependencies..."
 if [ -f "requirements.txt" ]; then
-    $PIP install --upgrade pip --quiet 2>/dev/null || warn "pip self-upgrade skipped"
-    $PIP install -r requirements.txt --quiet 2>&1 | tail -5
+    "$PIP" install --upgrade pip --quiet 2>/dev/null || warn "pip self-upgrade skipped"
+    "$PIP" install -r requirements.txt --quiet 2>&1 | tail -5
     ok "Python dependencies installed"
 else
     warn "requirements.txt not found, skipping"
@@ -112,7 +112,7 @@ if [ ! -f "$REGISTRY_SCRIPT" ]; then
     REGISTRY_SCRIPT="$PROJECT_ROOT/scripts/register_all_skills.py"
 fi
 if [ -f "$REGISTRY_SCRIPT" ]; then
-    $PYTHON "$REGISTRY_SCRIPT" 2>&1 | tail -8
+    "$PYTHON" "$REGISTRY_SCRIPT" 2>&1 | tail -8
     ok "Skills registered"
 else
     err "No registration script found in scripts/"
@@ -163,7 +163,7 @@ fi
 
 # ─── Verify watcher ─────────────────────────────────────────────────────
 log "Verifying watcher..."
-if $PYTHON "$PROJECT_ROOT/skills/_orchestrator/scripts/watcher.py" --verify 2>&1 | tail -5; then
+if "$PYTHON" "$PROJECT_ROOT/skills/_orchestrator/scripts/watcher.py" --verify 2>&1 | tail -5; then
     ok "Watcher verification passed"
 else
     warn "Watcher verification had issues (non-fatal)"

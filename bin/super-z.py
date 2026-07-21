@@ -140,15 +140,19 @@ def cmd_skills() -> int:
 
 
 def cmd_signals() -> int:
-    watcher = ORCHESTRATOR / "watcher.py"
-    if not watcher.exists():
-        print(f"{RED}watcher.py not found at {watcher}{RESET}")
+    sys.path.insert(0, str(ORCHESTRATOR))
+    try:
+        from watcher import SIGNAL_PATTERNS, SIGNAL_TO_SKILL
+        print(f"{BOLD}Watcher signal patterns:{RESET}")
+        print()
+        for sig, skill in sorted(SIGNAL_TO_SKILL.items()):
+            print(f"  {sig:<35s} → {skill}")
+        print()
+        print(f"Total: {len(SIGNAL_PATTERNS)} patterns, {len(SIGNAL_TO_SKILL)} mappings")
+        return 0
+    except Exception as e:
+        print(f"{RED}Failed to load watcher signals: {e}{RESET}")
         return 1
-    result = subprocess.run(
-        [PYTHON, str(watcher), "--list-signals"],
-        capture_output=False
-    )
-    return result.returncode
 
 
 def cmd_run_skill(args) -> int:
