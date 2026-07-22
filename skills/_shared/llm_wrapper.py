@@ -40,6 +40,13 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+try:
+    from super_z.config import load_config
+    from super_z.llm_backends import create_backend
+except Exception:  # pragma: no cover - fallback for direct script execution
+    load_config = None
+    create_backend = None
+
 # ─── Paths ────────────────────────────────────────────────────────────────
 Z_AI = shutil.which("z-ai") or "/usr/local/bin/z-ai"
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -83,49 +90,60 @@ def extract_description(skill_md_text: str) -> str:
 
 
 def call_z_ai_chat(system_prompt: str, user_prompt: str,
-                   timeout_sec: int = 90) -> Optional[str]:
-    """Call z-ai chat CLI. Returns the assistant's text content, or None on failure."""
-    if not os.path.exists(Z_AI):
-        sys.stderr.write(f"[llm_wrapper] z-ai binary not found at {Z_AI}\n")
-        return None
-
-    try:
-        cmd = [
-            Z_AI, "chat",
-            "--prompt", user_prompt,
-            "--system", system_prompt,
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
-        if r.returncode != 0:
-            sys.stderr.write(f"[llm_wrapper] z-ai chat failed: {r.stderr[:300]}\n")
+                   timeout_sec: int = 90, backend_name: str = "mock") -> Optional[str]:
+    """Call the configured backend. Returns the assistant's text content, or None on failure."""
+    if create_backend is not None:
+        try:
+            backend = create_backend(backend_name)
+            return backend.chat(system_prompt, user_prompt, timeout=timeout_sec)
+        except Exception as exc:
+            sys.stderr.write(f"[llm_wrapper] backend '{backend_name}' failed: {exc}\n")
+            if backend_name != "mock" and create_backend is not None:
+                try:
+                    fallback = create_backend("mock")
+                    return fallback.chat(system_prompt, user_prompt, timeout=timeout_sec)
+                except Exception:
+                    return None
             return None
 
-        out = r.stdout
-        # z-ai CLI prints log lines (🚀 Initializing...) before the JSON envelope.
-        # Find the first '{' and try to parse the OpenAI-style envelope.
-        envelope_start = out.find("{")
-        if envelope_start >= 0:
-            try:
-                envelope = json.loads(out[envelope_start:])
-                if isinstance(envelope, dict) and "choices" in envelope:
-                    content = (
-                        envelope.get("choices", [{}])[0]
-                        .get("message", {})
-                        .get("content", "")
-                    )
-                    if content and content.strip():
-                        return content.strip()
-            except json.JSONDecodeError:
-                pass
-        # Fallback: treat entire stdout as content
-        return out.strip() if out.strip() else None
+    if backend_name != "zai_cli" and os.path.exists(Z_AI):
+        try:
+            cmd = [
+                Z_AI, "chat",
+                "--prompt", user_prompt,
+                "--system", system_prompt,
+            ]
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
+            if r.returncode != 0:
+                sys.stderr.write(f"[llm_wrapper] z-ai chat failed: {r.stderr[:300]}\n")
+                return None
 
-    except subprocess.TimeoutExpired:
-        sys.stderr.write(f"[llm_wrapper] z-ai chat timed out ({timeout_sec}s)\n")
-        return None
-    except Exception as e:
-        sys.stderr.write(f"[llm_wrapper] z-ai chat error: {e}\n")
-        return None
+            out = r.stdout
+            envelope_start = out.find("{")
+            if envelope_start >= 0:
+                try:
+                    envelope = json.loads(out[envelope_start:])
+                    if isinstance(envelope, dict) and "choices" in envelope:
+                        content = (
+                            envelope.get("choices", [{}])[0]
+                            .get("message", {})
+                            .get("content", "")
+                        )
+                        if content and content.strip():
+                            return content.strip()
+                except json.JSONDecodeError:
+                    pass
+            return out.strip() if out.strip() else None
+
+        except subprocess.TimeoutExpired:
+            sys.stderr.write(f"[llm_wrapper] z-ai chat timed out ({timeout_sec}s)\n")
+            return None
+        except Exception as e:
+            sys.stderr.write(f"[llm_wrapper] z-ai chat error: {e}\n")
+            return None
+
+    sys.stderr.write(f"[llm_wrapper] z-ai binary not found at {Z_AI}\n")
+    return None
 
 
 # ─── Pattern 1 brief builder ──────────────────────────────────────────────
@@ -180,7 +198,7 @@ def build_pattern1_brief(
 # ─── Main entry ───────────────────────────────────────────────────────────
 
 def run_skill(skill_name: str, user_query: Optional[str] = None,
-              json_output: bool = True) -> Dict[str, Any]:
+              json_output: bool = True, backend_name: str = "mock") -> Dict[str, Any]:
     """Main entry point. Reads query from arg or stdin."""
     # Read query
     if not user_query or user_query == "-":
@@ -220,7 +238,13 @@ def run_skill(skill_name: str, user_query: Optional[str] = None,
     )
 
     t0 = time.time()
-    llm_response = call_z_ai_chat(system_prompt, user_prompt, timeout_sec=120)
+    backend = backend_name or "mock"
+    if load_config is not None:
+        try:
+            backend = load_config().backend
+        except Exception:
+            backend = backend_name or "mock"
+    llm_response = call_z_ai_chat(system_prompt, user_prompt, timeout_sec=120, backend_name=backend)
     elapsed = time.time() - t0
 
     if not llm_response:
@@ -250,11 +274,12 @@ def main():
     ap.add_argument("--skill", required=True, help="Skill name (e.g., blog-writer)")
     ap.add_argument("--query", default=None,
                     help="User query (if omitted, reads from stdin)")
+    ap.add_argument("--backend", default="mock", help="Backend selection")
     ap.add_argument("--json", action="store_true", default=True,
                     help="Output as Pattern 1 brief JSON (default)")
     args = ap.parse_args()
 
-    result = run_skill(args.skill, user_query=args.query, json_output=args.json)
+    result = run_skill(args.skill, user_query=args.query, json_output=args.json, backend_name=args.backend)
     if "error" in result:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         sys.exit(1)

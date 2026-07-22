@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.0 - 2026-07-21
+- Replaced the broken packaging setup with a proper pyproject-based installable package.
+- Added a Python CLI entry point via the super-z console script and module entry point.
+- Introduced a configurable skills-directory resolution flow so the tool works from the repository checkout and installed environments.
+- Added a lightweight LLM backend abstraction with a mock backend fallback so docs-only skills can still run without z-ai installed.
+- Added regression coverage for the new CLI entry points.
+
 All notable changes to this project will be documented in this file.
 
 ## [v2.0.2] — 2026-07-04 — Cross-platform Python CLI + CI/CD

@@ -70,8 +70,15 @@ from executor import Executor  # noqa: E402
 # Default paths
 # ─────────────────────────────────────────────────────────────────────
 
-DEFAULT_SKILLS_DIR = Path("/home/z/my-project/skills")
-DEFAULT_BRIEF_FILE = Path("/home/z/my-project/.context/context_brief.json")
+def _resolve_repo_root() -> Path:
+    env_value = os.getenv("SUPER_Z_REPO_ROOT")
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return Path(__file__).resolve().parents[3]
+
+
+DEFAULT_SKILLS_DIR = Path(os.getenv("SUPER_Z_SKILLS_DIR") or (_resolve_repo_root() / "skills")).expanduser().resolve()
+DEFAULT_BRIEF_FILE = Path(os.getenv("SUPER_Z_BRIEF_FILE") or (_resolve_repo_root() / ".context" / "context_brief.json")).expanduser().resolve()
 DEFAULT_BRIEF_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # How many recent entries to keep in context_brief

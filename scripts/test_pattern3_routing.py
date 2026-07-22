@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Test Pattern 3 adaptive router: verify different query types produce
 different plans (different max_skills, allow_llm, allow_creative_pipeline)."""
-import sys, json
-sys.path.insert(0, '/home/z/my-project/skills/_orchestrator/scripts')
+import sys
+import json
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SYS_PATH = REPO_ROOT / "skills" / "_orchestrator" / "scripts"
+sys.path.insert(0, str(SYS_PATH))
 from planner import Planner
 from registry import SkillRegistry
 
-reg = SkillRegistry("/home/z/my-project/skills")
+reg = SkillRegistry(REPO_ROOT / "skills")
 planner = Planner(reg)
 
 TESTS = [

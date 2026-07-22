@@ -63,14 +63,13 @@ if [ "$PY_OK" != "1" ]; then
 fi
 ok "Python $PY_VERSION"
 
-# ─── Step 2: Check z-ai CLI ─────────────────────────────────────────────
-log "Step 2/6: Checking z-ai CLI..."
+# ─── Step 2: Check z-ai CLI (optional) ─────────────────────────────────
+log "Step 2/6: Checking z-ai CLI (optional)..."
 if ! command -v z-ai >/dev/null 2>&1; then
-    err "z-ai CLI not found. Install it first: npm install -g z-ai-web-dev-sdk"
-    err "Or check: https://github.com/z-ai-zai/z-ai-web-dev-sdk"
-    exit 1
+    warn "z-ai CLI not found; the new CLI can still run in mock mode for docs-only skills"
+else
+    ok "z-ai CLI present"
 fi
-ok "z-ai CLI present"
 
 # ─── Step 3: Create/use venv ────────────────────────────────────────────
 log "Step 3/6: Setting up Python environment..."
@@ -100,23 +99,18 @@ log "Step 4/6: Installing Python dependencies..."
 if [ -f "requirements.txt" ]; then
     $PIP install --upgrade pip --quiet 2>/dev/null || warn "pip self-upgrade skipped"
     $PIP install -r requirements.txt --quiet 2>&1 | tail -5
-    ok "Python dependencies installed"
 else
     warn "requirements.txt not found, skipping"
 fi
 
-# ─── Step 5: Register all skills ────────────────────────────────────────
+$PIP install -e "$PROJECT_ROOT" --quiet 2>&1 | tail -5
+ok "Python package installed"
+
+# ─── Step 5: Register all skills (best effort) ────────────────────────
 log "Step 5/6: Registering skills..."
 REGISTRY_SCRIPT="$PROJECT_ROOT/scripts/register_remaining_skills.py"
-if [ ! -f "$REGISTRY_SCRIPT" ]; then
-    REGISTRY_SCRIPT="$PROJECT_ROOT/scripts/register_all_skills.py"
-fi
 if [ -f "$REGISTRY_SCRIPT" ]; then
-    $PYTHON "$REGISTRY_SCRIPT" 2>&1 | tail -8
-    ok "Skills registered"
-else
-    err "No registration script found in scripts/"
-    exit 1
+    $PYTHON "$REGISTRY_SCRIPT" 2>&1 | tail -8 || warn "Registration script reported issues"
 fi
 
 # Verify skill count
@@ -186,6 +180,7 @@ if [ "$BIN_PATH" = "$PROJECT_ROOT/bin" ]; then
 else
     echo "    super-z \"напиши пост про ИИ\""
 fi
+echo "    poler-edit                              # открыть веб-интерфейс PolerEdit"
 echo "    super-z --watch                          # interactive mode"
 echo "    super-z --brief                          # show context brief"
 echo ""

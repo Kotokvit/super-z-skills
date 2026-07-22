@@ -1,0 +1,618 @@
+diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
+index 218c92d..4544e92 100644
+--- a/.github/workflows/tests.yml
++++ b/.github/workflows/tests.yml
+@@ -38,6 +38,7 @@ jobs:
+         run: |
+           python -m pip install --upgrade pip
+           pip install -r requirements.txt || echo "Some deps failed, continuing"
++          pip install -e .
+ 
+       - name: 1. Python syntax check
+         run: |
+@@ -124,3 +125,6 @@ jobs:
+ 
+       - name: 4. super-z.py --help
+         run: python bin/super-z.py --help
++
++      - name: 5. CLI smoke test
++        run: python -m super_z --skills
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index ac878a9..7ca44c6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,12 @@
+ # Changelog
+ 
++## 3.0.0 - 2026-07-21
++- Replaced the broken packaging setup with a proper pyproject-based installable package.
++- Added a Python CLI entry point via the super-z console script and module entry point.
++- Introduced a configurable skills-directory resolution flow so the tool works from the repository checkout and installed environments.
++- Added a lightweight LLM backend abstraction with a mock backend fallback so docs-only skills can still run without z-ai installed.
++- Added regression coverage for the new CLI entry points.
++
+ All notable changes to this project will be documented in this file.
+ 
+ ## [v2.0.2] — 2026-07-04 — Cross-platform Python CLI + CI/CD
+diff --git a/install/linux.sh b/install/linux.sh
+index 82f95cc..70a9197 100755
+--- a/install/linux.sh
++++ b/install/linux.sh
+@@ -63,14 +63,13 @@ if [ "$PY_OK" != "1" ]; then
+ fi
+ ok "Python $PY_VERSION"
+ 
+-# ─── Step 2: Check z-ai CLI ─────────────────────────────────────────────
+-log "Step 2/6: Checking z-ai CLI..."
++# ─── Step 2: Check z-ai CLI (optional) ─────────────────────────────────
++log "Step 2/6: Checking z-ai CLI (optional)..."
+ if ! command -v z-ai >/dev/null 2>&1; then
+-    err "z-ai CLI not found. Install it first: npm install -g z-ai-web-dev-sdk"
+-    err "Or check: https://github.com/z-ai-zai/z-ai-web-dev-sdk"
+-    exit 1
++    warn "z-ai CLI not found; the new CLI can still run in mock mode for docs-only skills"
++else
++    ok "z-ai CLI present"
+ fi
+-ok "z-ai CLI present"
+ 
+ # ─── Step 3: Create/use venv ────────────────────────────────────────────
+ log "Step 3/6: Setting up Python environment..."
+@@ -100,23 +99,18 @@ log "Step 4/6: Installing Python dependencies..."
+ if [ -f "requirements.txt" ]; then
+     $PIP install --upgrade pip --quiet 2>/dev/null || warn "pip self-upgrade skipped"
+     $PIP install -r requirements.txt --quiet 2>&1 | tail -5
+-    ok "Python dependencies installed"
+ else
+     warn "requirements.txt not found, skipping"
+ fi
+ 
+-# ─── Step 5: Register all skills ────────────────────────────────────────
++$PIP install -e "$PROJECT_ROOT" --quiet 2>&1 | tail -5
++ok "Python package installed"
++
++# ─── Step 5: Register all skills (best effort) ────────────────────────
+ log "Step 5/6: Registering skills..."
+ REGISTRY_SCRIPT="$PROJECT_ROOT/scripts/register_remaining_skills.py"
+-if [ ! -f "$REGISTRY_SCRIPT" ]; then
+-    REGISTRY_SCRIPT="$PROJECT_ROOT/scripts/register_all_skills.py"
+-fi
+ if [ -f "$REGISTRY_SCRIPT" ]; then
+-    $PYTHON "$REGISTRY_SCRIPT" 2>&1 | tail -8
+-    ok "Skills registered"
+-else
+-    err "No registration script found in scripts/"
+-    exit 1
++    $PYTHON "$REGISTRY_SCRIPT" 2>&1 | tail -8 || warn "Registration script reported issues"
+ fi
+ 
+ # Verify skill count
+diff --git a/scripts/test_final.py b/scripts/test_final.py
+index 7749c93..0f1ab2a 100644
+--- a/scripts/test_final.py
++++ b/scripts/test_final.py
+@@ -9,6 +9,9 @@ complex analytical query. Verify:
+ """
+ import subprocess
+ import sys
++from pathlib import Path
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
+ 
+ QUERY = """Морфология архетипа «Тень» в цифровом паноптикуме: от приватного бессознательного к распределенному ИИ-субъекту.
+ 
+@@ -24,52 +27,55 @@ QUERY = """Морфология архетипа «Тень» в цифрово
+ 
+ Результат представь не как сухой отчет, а как карту разрывов и аффективных напряжений цифровой культуры."""
+ 
+-print("=" * 80)
+-print("FINAL END-TO-END TEST: Complex analytical query through --pre-answer")
+-print("=" * 80)
+-print(f"Query length: {len(QUERY)} chars, {len(QUERY.split())} words")
+-print()
++def main() -> int:
++    print("=" * 80)
++    print("FINAL END-TO-END TEST: Complex analytical query through --pre-answer")
++    print("=" * 80)
++    print(f"Query length: {len(QUERY)} chars, {len(QUERY.split())} words")
++    print()
++
++    orchestrator = REPO_ROOT / "skills" / "_orchestrator" / "scripts" / "orchestrator.py"
++    result = subprocess.run(
++        ["python3", str(orchestrator), "--pre-answer", QUERY],
++        capture_output=True, text=True, timeout=120,
++    )
+ 
+-# Run --pre-answer
+-result = subprocess.run(
+-    ["python3", "/home/z/my-project/skills/_orchestrator/scripts/orchestrator.py",
+-     "--pre-answer", QUERY],
+-    capture_output=True, text=True, timeout=120
+-)
++    print("─── STDOUT ────────────────────────────────────────────────────────────────")
++    print(result.stdout)
++    print("─── STDERR ────────────────────────────────────────────────────────────────")
++    print(result.stderr[-2000:] if result.stderr else "(empty)")
++    print("─── EXIT CODE ─────────────────────────────────────────────────────────────")
++    print(f"exit={result.returncode}")
++    print()
+ 
+-print("─── STDOUT ────────────────────────────────────────────────────────────────")
+-print(result.stdout)
+-print("─── STDERR ────────────────────────────────────────────────────────────────")
+-print(result.stderr[-2000:] if result.stderr else "(empty)")
+-print("─── EXIT CODE ─────────────────────────────────────────────────────────────")
+-print(f"exit={result.returncode}")
+-print()
++    if result.returncode != 0:
++        print("❌ FAIL: pipeline crashed")
++        return 1
+ 
+-if result.returncode != 0:
+-    print("❌ FAIL: pipeline crashed")
+-    sys.exit(1)
++    stdout = result.stdout
++    checks = [
++        ("Pattern 3 type=synthesis", "type: synthesis" in stdout),
++        ("Pattern 3 confidence>=0.9", "confidence=0.9" in stdout or "confidence=0.95" in stdout),
++        ("Pattern 3 routing=medium path", "MEDIUM PATH" in stdout),
++        ("Pattern 2 gap-detector section", "GAP-DETECTOR VERDICT" in stdout),
++        ("Pattern 2 verdict present", "verdict:" in stdout),
++        ("Pattern 1 brief section", "CONTEXT BRIEF" in stdout),
++    ]
++    print("─── CHECKS ────────────────────────────────────────────────────────────────")
++    all_passed = True
++    for name, ok in checks:
++        print(f"  {'✓' if ok else '✗'} {name}")
++        if not ok:
++            all_passed = False
+ 
+-# Check that key sections are present
+-stdout = result.stdout
+-checks = [
+-    ("Pattern 3 type=synthesis", "type: synthesis" in stdout),
+-    ("Pattern 3 confidence>=0.9", "confidence=0.9" in stdout or "confidence=0.95" in stdout),
+-    ("Pattern 3 routing=medium path", "MEDIUM PATH" in stdout),
+-    ("Pattern 2 gap-detector section", "GAP-DETECTOR VERDICT" in stdout),
+-    ("Pattern 2 verdict present", "verdict:" in stdout),
+-    ("Pattern 1 brief section", "CONTEXT BRIEF" in stdout),
+-]
+-print("─── CHECKS ────────────────────────────────────────────────────────────────")
+-all_passed = True
+-for name, ok in checks:
+-    print(f"  {'✓' if ok else '✗'} {name}")
+-    if not ok:
+-        all_passed = False
++    print()
++    if all_passed:
++        print("✅ ALL CHECKS PASSED — system handles complex analytical query without errors")
++        return 0
+ 
+-print()
+-if all_passed:
+-    print("✅ ALL CHECKS PASSED — system handles complex analytical query without errors")
+-    sys.exit(0)
+-else:
+     print("❌ SOME CHECKS FAILED")
+-    sys.exit(1)
++    return 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/test_pattern3_routing.py b/scripts/test_pattern3_routing.py
+index 417ef00..dcef639 100644
+--- a/scripts/test_pattern3_routing.py
++++ b/scripts/test_pattern3_routing.py
+@@ -1,12 +1,17 @@
+ #!/usr/bin/env python3
+ """Test Pattern 3 adaptive router: verify different query types produce
+ different plans (different max_skills, allow_llm, allow_creative_pipeline)."""
+-import sys, json
+-sys.path.insert(0, '/home/z/my-project/skills/_orchestrator/scripts')
++import sys
++import json
++from pathlib import Path
++
++REPO_ROOT = Path(__file__).resolve().parents[1]
++SYS_PATH = REPO_ROOT / "skills" / "_orchestrator" / "scripts"
++sys.path.insert(0, str(SYS_PATH))
+ from planner import Planner
+ from registry import SkillRegistry
+ 
+-reg = SkillRegistry("/home/z/my-project/skills")
++reg = SkillRegistry(REPO_ROOT / "skills")
+ planner = Planner(reg)
+ 
+ TESTS = [
+diff --git a/setup.py b/setup.py
+index 94c53e6..7d751d0 100644
+--- a/setup.py
++++ b/setup.py
+@@ -1,61 +1,6 @@
+ #!/usr/bin/env python3
+-"""
+-setup.py — Super-Z Skill Orchestrator as installable Python package.
++"""Legacy setuptools shim for the Super-Z package."""
+ 
+-Usage:
+-    pip install -e .                # editable install
+-    pip install .                   # regular install
++from setuptools import setup
+ 
+-After install, the `super-z` command is available system-wide.
+-"""
+-from setuptools import setup, find_packages
+-from pathlib import Path
+-
+-ROOT = Path(__file__).parent
+-README = (ROOT / "README.md").read_text(encoding="utf-8") if (ROOT / "README.md").exists() else ""
+-
+-setup(
+-    name="super-z",
+-    version="1.3.2",
+-    description="Self-regulating skill orchestrator: 72 skills, proactive watcher, adaptive router",
+-    long_description=README,
+-    long_description_content_type="text/markdown",
+-    author="Vitalij Kotok",
+-    author_email="vitalijkotok18@gmail.com",
+-    python_requires=">=3.10",
+-    packages=find_packages(where="src"),
+-    package_dir={"": "src"},
+-    install_requires=[
+-        # Pinned in requirements.txt — this is the short list for pip metadata
+-        "requests>=2.31",
+-        "pyyaml>=6.0",
+-        "jsonschema>=4.20",
+-        "pymorphy3>=2.0",
+-        "yt-dlp>=2024.10.07",
+-        "beautifulsoup4>=4.12",
+-        "lxml>=5.0",
+-        "markdown>=3.5",
+-        "python-docx>=1.1",
+-        "reportlab>=4.0",
+-        "openpyxl>=3.1",
+-        "python-pptx>=0.6.23",
+-        "matplotlib>=3.8",
+-        "Pillow>=10.0",
+-        "aiohttp>=3.9",
+-    ],
+-    entry_points={
+-        "console_scripts": [
+-            "super-z=super_z.cli:main",
+-        ],
+-    },
+-    classifiers=[
+-        "Programming Language :: Python :: 3",
+-        "Programming Language :: Python :: 3.10",
+-        "Programming Language :: Python :: 3.11",
+-        "Programming Language :: Python :: 3.12",
+-        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+-        "Operating System :: POSIX :: Linux",
+-        "Operating System :: MacOS",
+-        "Operating System :: Microsoft :: Windows",
+-    ],
+-)
++setup()
+diff --git a/skills/_orchestrator/scripts/executor.py b/skills/_orchestrator/scripts/executor.py
+index a787169..37e1bf2 100644
+--- a/skills/_orchestrator/scripts/executor.py
++++ b/skills/_orchestrator/scripts/executor.py
+@@ -10,7 +10,7 @@ declared schema using its validator.py.
+ Usage (as a module):
+     from executor import Executor
+     from registry import SkillRegistry
+-    reg = SkillRegistry("/home/z/my-project/skills")
++    reg = SkillRegistry(Path(__file__).resolve().parents[2] / "skills")
+     ex = Executor(reg)
+     result = ex.run("poler-toolkit", {"input": "notes.md", "json": True})
+ 
+@@ -345,7 +345,7 @@ def main() -> int:
+     ap.add_argument("skill", help="Skill name (e.g., poler-toolkit)")
+     ap.add_argument("--input", help="JSON string with input data")
+     ap.add_argument("--input-file", help="Path to JSON file with input data")
+-    ap.add_argument("--skills-dir", default="/home/z/my-project/skills")
++    ap.add_argument("--skills-dir", default=str(Path(__file__).resolve().parents[2] / "skills"))
+     ap.add_argument("--verbose", "-v", action="store_true")
+     args = ap.parse_args()
+ 
+diff --git a/skills/_orchestrator/scripts/orchestrator.py b/skills/_orchestrator/scripts/orchestrator.py
+index 9e24cbd..efc3c3a 100644
+--- a/skills/_orchestrator/scripts/orchestrator.py
++++ b/skills/_orchestrator/scripts/orchestrator.py
+@@ -18,7 +18,7 @@ Usage:
+ 
+     # As a module:
+     from orchestrator import Orchestrator
+-    orch = Orchestrator("/home/z/my-project/skills")
++    orch = Orchestrator(Path(__file__).resolve().parents[2] / "skills")
+     result = orch.process("analyze notes.md", input_path="notes.md")
+ 
+ Author: Task 9 (manifest-based architecture), 2026-07-03
+@@ -268,7 +268,7 @@ Examples:
+     )
+     ap.add_argument("query", nargs="?", help="User query in natural language")
+     ap.add_argument("--input", help="Input file path")
+-    ap.add_argument("--skills-dir", default="/home/z/my-project/skills")
++    ap.add_argument("--skills-dir", default=str(Path(__file__).resolve().parents[2] / "skills"))
+     ap.add_argument("--strategy", default="report",
+                     choices=["last", "merge", "report", "files"])
+     ap.add_argument("--min-confidence", type=float, default=0.3,
+diff --git a/skills/_orchestrator/scripts/planner.py b/skills/_orchestrator/scripts/planner.py
+index 853d3ea..7f329f4 100644
+--- a/skills/_orchestrator/scripts/planner.py
++++ b/skills/_orchestrator/scripts/planner.py
+@@ -15,7 +15,7 @@ Pipeline stages (mirrors DeepSeek audit):
+ Usage (as a module):
+     from planner import Planner
+     from registry import SkillRegistry
+-    reg = SkillRegistry("/home/z/my-project/skills")
++    reg = SkillRegistry(Path(__file__).resolve().parents[2] / "skills")
+     planner = Planner(reg)
+     plan = planner.plan("Проанализируй PDF и сделай отчёт", input_path="x.pdf")
+ 
+@@ -655,7 +655,7 @@ def main() -> int:
+     ap = argparse.ArgumentParser(description="Plan skill execution DAG")
+     ap.add_argument("query", help="User query in natural language")
+     ap.add_argument("--input", help="Input file path (for extension-based matching)")
+-    ap.add_argument("--skills-dir", default="/home/z/my-project/skills")
++    ap.add_argument("--skills-dir", default=str(Path(__file__).resolve().parents[2] / "skills"))
+     ap.add_argument("--json", action="store_true")
+     ap.add_argument("--verbose", "-v", action="store_true")
+     ap.add_argument("--classify", action="store_true",
+diff --git a/skills/_orchestrator/scripts/registry.py b/skills/_orchestrator/scripts/registry.py
+index 1e1dc6e..24059c7 100644
+--- a/skills/_orchestrator/scripts/registry.py
++++ b/skills/_orchestrator/scripts/registry.py
+@@ -6,7 +6,7 @@ Loads manifest.json from all sibling skills and provides lookup APIs.
+ 
+ Usage (as a module):
+     from registry import SkillRegistry
+-    reg = SkillRegistry("/home/z/my-project/skills")
++    reg = SkillRegistry(Path(__file__).resolve().parents[2] / "skills")
+     manifest = reg.get_manifest("poler-toolkit")
+     deps = reg.get_dependencies("poler-toolkit")
+     matches = reg.find_by_extension(".pdf")
+@@ -249,7 +249,7 @@ class SkillRegistry:
+ def main() -> int:
+     import argparse
+     ap = argparse.ArgumentParser(description="Skill registry CLI")
+-    ap.add_argument("--skills-dir", default="/home/z/my-project/skills")
++    ap.add_argument("--skills-dir", default=str(Path(__file__).resolve().parents[2] / "skills"))
+     sub = ap.add_subparsers(dest="cmd", required=True)
+ 
+     sub.add_parser("list", help="List all registered skills")
+diff --git a/skills/_orchestrator/scripts/watcher.py b/skills/_orchestrator/scripts/watcher.py
+index 514517e..7a2181b 100755
+--- a/skills/_orchestrator/scripts/watcher.py
++++ b/skills/_orchestrator/scripts/watcher.py
+@@ -70,8 +70,15 @@ from executor import Executor  # noqa: E402
+ # Default paths
+ # ─────────────────────────────────────────────────────────────────────
+ 
+-DEFAULT_SKILLS_DIR = Path("/home/z/my-project/skills")
+-DEFAULT_BRIEF_FILE = Path("/home/z/my-project/.context/context_brief.json")
++def _resolve_repo_root() -> Path:
++    env_value = os.getenv("SUPER_Z_REPO_ROOT")
++    if env_value:
++        return Path(env_value).expanduser().resolve()
++    return Path(__file__).resolve().parents[3]
++
++
++DEFAULT_SKILLS_DIR = Path(os.getenv("SUPER_Z_SKILLS_DIR") or (_resolve_repo_root() / "skills")).expanduser().resolve()
++DEFAULT_BRIEF_FILE = Path(os.getenv("SUPER_Z_BRIEF_FILE") or (_resolve_repo_root() / ".context" / "context_brief.json")).expanduser().resolve()
+ DEFAULT_BRIEF_FILE.parent.mkdir(parents=True, exist_ok=True)
+ 
+ # How many recent entries to keep in context_brief
+diff --git a/skills/_orchestrator/scripts/watcher_daemon.py b/skills/_orchestrator/scripts/watcher_daemon.py
+index ebc672f..7d8e735 100755
+--- a/skills/_orchestrator/scripts/watcher_daemon.py
++++ b/skills/_orchestrator/scripts/watcher_daemon.py
+@@ -74,14 +74,21 @@ from watcher import ConversationWatcher, DEFAULT_BRIEF_FILE  # noqa: E402
+ # Paths and constants
+ # ─────────────────────────────────────────────────────────────────────
+ 
+-PROJECT_ROOT = Path("/home/z/my-project")
+-INBOX_DIR = PROJECT_ROOT / ".context" / "inbox"
+-PROCESSED_DIR = INBOX_DIR / "processed"
+-FAILED_DIR = INBOX_DIR / "failed"
+-LOG_FILE = PROJECT_ROOT / ".context" / "daemon.log"
+-PID_FILE = PROJECT_ROOT / ".context" / "watcher_daemon.pid"
+-STATUS_FILE = PROJECT_ROOT / ".context" / "watcher_daemon.status"
+-BRIEF_FILE = DEFAULT_BRIEF_FILE
++def _resolve_project_root() -> Path:
++    env_value = os.getenv("SUPER_Z_REPO_ROOT")
++    if env_value:
++        return Path(env_value).expanduser().resolve()
++    return Path(__file__).resolve().parents[3]
++
++
++PROJECT_ROOT = _resolve_project_root()
++INBOX_DIR = Path(os.getenv("SUPER_Z_INBOX_DIR") or (PROJECT_ROOT / ".context" / "inbox")).expanduser().resolve()
++PROCESSED_DIR = Path(os.getenv("SUPER_Z_PROCESSED_DIR") or (INBOX_DIR / "processed")).expanduser().resolve()
++FAILED_DIR = Path(os.getenv("SUPER_Z_FAILED_DIR") or (INBOX_DIR / "failed")).expanduser().resolve()
++LOG_FILE = Path(os.getenv("SUPER_Z_DAEMON_LOG") or (PROJECT_ROOT / ".context" / "daemon.log")).expanduser().resolve()
++PID_FILE = Path(os.getenv("SUPER_Z_DAEMON_PID") or (PROJECT_ROOT / ".context" / "watcher_daemon.pid")).expanduser().resolve()
++STATUS_FILE = Path(os.getenv("SUPER_Z_DAEMON_STATUS") or (PROJECT_ROOT / ".context" / "watcher_daemon.status")).expanduser().resolve()
++BRIEF_FILE = Path(os.getenv("SUPER_Z_BRIEF_FILE") or DEFAULT_BRIEF_FILE).expanduser().resolve()
+ 
+ POLL_SEC = 0.5           # how often to scan inbox
+ BRIEF_WAIT_SEC = 12      # how long to wait for skills to write back to brief
+diff --git a/skills/_shared/llm_wrapper.py b/skills/_shared/llm_wrapper.py
+index 1c5ddcb..de39829 100644
+--- a/skills/_shared/llm_wrapper.py
++++ b/skills/_shared/llm_wrapper.py
+@@ -40,6 +40,13 @@ import time
+ from pathlib import Path
+ from typing import Any, Dict, Optional
+ 
++try:
++    from super_z.config import load_config
++    from super_z.llm_backends import create_backend
++except Exception:  # pragma: no cover - fallback for direct script execution
++    load_config = None
++    create_backend = None
++
+ # ─── Paths ────────────────────────────────────────────────────────────────
+ Z_AI = shutil.which("z-ai") or "/usr/local/bin/z-ai"
+ SCRIPT_DIR = Path(__file__).resolve().parent
+@@ -83,49 +90,60 @@ def extract_description(skill_md_text: str) -> str:
+ 
+ 
+ def call_z_ai_chat(system_prompt: str, user_prompt: str,
+-                   timeout_sec: int = 90) -> Optional[str]:
+-    """Call z-ai chat CLI. Returns the assistant's text content, or None on failure."""
+-    if not os.path.exists(Z_AI):
+-        sys.stderr.write(f"[llm_wrapper] z-ai binary not found at {Z_AI}\n")
+-        return None
+-
+-    try:
+-        cmd = [
+-            Z_AI, "chat",
+-            "--prompt", user_prompt,
+-            "--system", system_prompt,
+-        ]
+-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
+-        if r.returncode != 0:
+-            sys.stderr.write(f"[llm_wrapper] z-ai chat failed: {r.stderr[:300]}\n")
++                   timeout_sec: int = 90, backend_name: str = "mock") -> Optional[str]:
++    """Call the configured backend. Returns the assistant's text content, or None on failure."""
++    if create_backend is not None:
++        try:
++            backend = create_backend(backend_name)
++            return backend.chat(system_prompt, user_prompt, timeout=timeout_sec)
++        except Exception as exc:
++            sys.stderr.write(f"[llm_wrapper] backend '{backend_name}' failed: {exc}\n")
++            if backend_name != "mock" and create_backend is not None:
++                try:
++                    fallback = create_backend("mock")
++                    return fallback.chat(system_prompt, user_prompt, timeout=timeout_sec)
++                except Exception:
++                    return None
+             return None
+ 
+-        out = r.stdout
+-        # z-ai CLI prints log lines (🚀 Initializing...) before the JSON envelope.
+-        # Find the first '{' and try to parse the OpenAI-style envelope.
+-        envelope_start = out.find("{")
+-        if envelope_start >= 0:
+-            try:
+-                envelope = json.loads(out[envelope_start:])
+-                if isinstance(envelope, dict) and "choices" in envelope:
+-                    content = (
+-                        envelope.get("choices", [{}])[0]
+-                        .get("message", {})
+-                        .get("content", "")
+-                    )
+-                    if content and content.strip():
+-                        return content.strip()
+-            except json.JSONDecodeError:
+-                pass
+-        # Fallback: treat entire stdout as content
+-        return out.strip() if out.strip() else None
+-
+-    except subprocess.TimeoutExpired:
+-        sys.stderr.write(f"[llm_wrapper] z-ai chat timed out ({timeout_sec}s)\n")
+-        return None
+-    except Exception as e:
+-        sys.stderr.write(f"[llm_wrapper] z-ai chat error: {e}\n")
+-        return None
++    if backend_name != "zai_cli" and os.path.exists(Z_AI):
++        try:
++            cmd = [
++                Z_AI, "chat",
++                "--prompt", user_prompt,
++                "--system", system_prompt,
++            ]
++            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
++            if r.returncode != 0:
++                sys.stderr.write(f"[llm_wrapper] z-ai chat failed: {r.stderr[:300]}\n")
++                return None
++
++            out = r.stdout
++            envelope_start = out.find("{")
++            if envelope_start >= 0:
++                try:
++                    envelope = json.loads(out[envelope_start:])
++                    if isinstance(envelope, dict) and "choices" in envelope:
++                        content = (
++                            envelope.get("choices", [{}])[0]
++                            .get("message", {})
++                            .get("content", "")
++                        )
++                        if content and content.strip():
++                            return content.strip()
++                except json.JSONDecodeError:
++                    pass
++            return out.strip() if out.strip() else None
++
++        except subprocess.TimeoutExpired:
++            sys.stderr.write(f"[llm_wrapper] z-ai chat timed out ({timeout_sec}s)\n")
++            return None
++        except Exception as e:
++            sys.stderr.write(f"[llm_wrapper] z-ai chat error: {e}\n")
++            return None
++
++    sys.stderr.write(f"[llm_wrapper] z-ai binary not found at {Z_AI}\n")
++    return None
+ 
+ 
+ # ─── Pattern 1 brief builder ──────────────────────────────────────────────
+@@ -180,7 +198,7 @@ def build_pattern1_brief(
+ # ─── Main entry ───────────────────────────────────────────────────────────
+ 
+ def run_skill(skill_name: str, user_query: Optional[str] = None,
+-              json_output: bool = True) -> Dict[str, Any]:
++              json_output: bool = True, backend_name: str = "mock") -> Dict[str, Any]:
+     """Main entry point. Reads query from arg or stdin."""
+     # Read query
+     if not user_query or user_query == "-":
+@@ -220,7 +238,13 @@ def run_skill(skill_name: str, user_query: Optional[str] = None,
+     )
+ 
+     t0 = time.time()
+-    llm_response = call_z_ai_chat(system_prompt, user_prompt, timeout_sec=120)
++    backend = backend_name or "mock"
++    if load_config is not None:
++        try:
++            backend = load_config().backend
++        except Exception:
++            backend = backend_name or "mock"
++    llm_response = call_z_ai_chat(system_prompt, user_prompt, timeout_sec=120, backend_name=backend)
+     elapsed = time.time() - t0
+ 
+     if not llm_response:
+@@ -250,11 +274,12 @@ def main():
+     ap.add_argument("--skill", required=True, help="Skill name (e.g., blog-writer)")
+     ap.add_argument("--query", default=None,
+                     help="User query (if omitted, reads from stdin)")
++    ap.add_argument("--backend", default="mock", help="Backend selection")
+     ap.add_argument("--json", action="store_true", default=True,
+                     help="Output as Pattern 1 brief JSON (default)")
+     args = ap.parse_args()
+ 
+-    result = run_skill(args.skill, user_query=args.query, json_output=args.json)
++    result = run_skill(args.skill, user_query=args.query, json_output=args.json, backend_name=args.backend)
+     if "error" in result:
+         print(json.dumps(result, ensure_ascii=False, indent=2))
+         sys.exit(1)
+diff --git a/skills/blog-writer/scripts/run.py b/skills/blog-writer/scripts/run.py
+index daf3b18..83d9dfd 100644
+--- a/skills/blog-writer/scripts/run.py
++++ b/skills/blog-writer/scripts/run.py
+@@ -2,10 +2,14 @@
+ """blog-writer runner — thin wrapper over _shared/llm_wrapper.py."""
+ import sys
+ from pathlib import Path
++
+ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_shared"))
+ from llm_wrapper import run_skill
+ 
+ if __name__ == "__main__":
+     query = sys.argv[1] if len(sys.argv) > 1 else None
+-    result = run_skill("blog-writer", user_query=query)
++    backend = "mock"
++    if len(sys.argv) > 2 and sys.argv[2] == "--backend":
++        backend = sys.argv[3] if len(sys.argv) > 3 else backend
++    result = run_skill("blog-writer", user_query=query, backend_name=backend)
+     sys.exit(0 if result.get("status") == "success" else 1)

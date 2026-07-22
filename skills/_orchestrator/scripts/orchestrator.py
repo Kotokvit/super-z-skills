@@ -18,7 +18,7 @@ Usage:
 
     # As a module:
     from orchestrator import Orchestrator
-    orch = Orchestrator("/home/z/my-project/skills")
+    orch = Orchestrator(Path(__file__).resolve().parents[2] / "skills")
     result = orch.process("analyze notes.md", input_path="notes.md")
 
 Author: Task 9 (manifest-based architecture), 2026-07-03
@@ -268,7 +268,7 @@ Examples:
     )
     ap.add_argument("query", nargs="?", help="User query in natural language")
     ap.add_argument("--input", help="Input file path")
-    ap.add_argument("--skills-dir", default="/home/z/my-project/skills")
+    ap.add_argument("--skills-dir", default=str(Path(__file__).resolve().parents[2] / "skills"))
     ap.add_argument("--strategy", default="report",
                     choices=["last", "merge", "report", "files"])
     ap.add_argument("--min-confidence", type=float, default=0.3,

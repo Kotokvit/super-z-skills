@@ -74,14 +74,21 @@ from watcher import ConversationWatcher, DEFAULT_BRIEF_FILE  # noqa: E402
 # Paths and constants
 # ─────────────────────────────────────────────────────────────────────
 
-PROJECT_ROOT = Path("/home/z/my-project")
-INBOX_DIR = PROJECT_ROOT / ".context" / "inbox"
-PROCESSED_DIR = INBOX_DIR / "processed"
-FAILED_DIR = INBOX_DIR / "failed"
-LOG_FILE = PROJECT_ROOT / ".context" / "daemon.log"
-PID_FILE = PROJECT_ROOT / ".context" / "watcher_daemon.pid"
-STATUS_FILE = PROJECT_ROOT / ".context" / "watcher_daemon.status"
-BRIEF_FILE = DEFAULT_BRIEF_FILE
+def _resolve_project_root() -> Path:
+    env_value = os.getenv("SUPER_Z_REPO_ROOT")
+    if env_value:
+        return Path(env_value).expanduser().resolve()
+    return Path(__file__).resolve().parents[3]
+
+
+PROJECT_ROOT = _resolve_project_root()
+INBOX_DIR = Path(os.getenv("SUPER_Z_INBOX_DIR") or (PROJECT_ROOT / ".context" / "inbox")).expanduser().resolve()
+PROCESSED_DIR = Path(os.getenv("SUPER_Z_PROCESSED_DIR") or (INBOX_DIR / "processed")).expanduser().resolve()
+FAILED_DIR = Path(os.getenv("SUPER_Z_FAILED_DIR") or (INBOX_DIR / "failed")).expanduser().resolve()
+LOG_FILE = Path(os.getenv("SUPER_Z_DAEMON_LOG") or (PROJECT_ROOT / ".context" / "daemon.log")).expanduser().resolve()
+PID_FILE = Path(os.getenv("SUPER_Z_DAEMON_PID") or (PROJECT_ROOT / ".context" / "watcher_daemon.pid")).expanduser().resolve()
+STATUS_FILE = Path(os.getenv("SUPER_Z_DAEMON_STATUS") or (PROJECT_ROOT / ".context" / "watcher_daemon.status")).expanduser().resolve()
+BRIEF_FILE = Path(os.getenv("SUPER_Z_BRIEF_FILE") or DEFAULT_BRIEF_FILE).expanduser().resolve()
 
 POLL_SEC = 0.5           # how often to scan inbox
 BRIEF_WAIT_SEC = 12      # how long to wait for skills to write back to brief

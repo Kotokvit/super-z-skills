@@ -1,0 +1,8 @@
+[core]
+skills_dir = "./skills"
+max_workers = 4
+
+[llm]
+backend = "mock"
+model = "mock"
+timeout = 120

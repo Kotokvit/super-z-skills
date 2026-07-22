@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "super-z"
+version = "3.0.0"
+description = "Self-regulating AI skill orchestrator with proactive context preparation"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "Vitalij Kotok"}]
+license = {text = "GPL-3.0-or-later"}
+dependencies = [
+  "requests>=2.31",
+  "pyyaml>=6.0",
+  "jsonschema>=4.20",
+  "beautifulsoup4>=4.12",
+  "lxml>=5.0",
+  "markdown>=3.5",
+  "aiohttp>=3.9",
+]
+
+[project.scripts]
+super-z = "super_z.cli:main"
+poler-edit = "super_z.poler_edit_ui:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+super_z = ["skills/**/*"]

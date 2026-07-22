@@ -24,7 +24,8 @@ import re
 import sys
 from pathlib import Path
 
-SKILLS_DIR = Path("/home/z/my-project/skills")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SKILLS_DIR = PROJECT_ROOT / "skills"
 
 
 # ─── Category inference by skill name keywords ──────────────────────────────
