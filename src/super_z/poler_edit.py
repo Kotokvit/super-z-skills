@@ -10,10 +10,10 @@ from typing import Any
 from pathlib import Path
 
 try:
-    from sandbox.poler_enhanced import POLEREnhanced
+    from sandbox.poler_enhanced_lite import POLEREnhanced
 except ImportError:
-    _POLER_PATH = Path(__file__).resolve().parents[2] / "skills" / "_shared" / "sandbox" / "poler_enhanced.py"
-    _POLER_SPEC = importlib.util.spec_from_file_location("super_z._poler_enhanced", _POLER_PATH)
+    _POLER_PATH = Path(__file__).resolve().parents[2] / "skills" / "_shared" / "sandbox" / "poler_enhanced_lite.py"
+    _POLER_SPEC = importlib.util.spec_from_file_location("super_z._poler_enhanced_lite", _POLER_PATH)
     if _POLER_SPEC is None or _POLER_SPEC.loader is None:
         raise ImportError(f"POLEREnhanced not found at {_POLER_PATH}")
     _POLER_MODULE = importlib.util.module_from_spec(_POLER_SPEC)
