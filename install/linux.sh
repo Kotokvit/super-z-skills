@@ -50,7 +50,7 @@ echo "${BOLD}╚═════════════════════�
 echo ""
 
 # ─── Step 1: Check Python ───────────────────────────────────────────────
-log "Step 1/6: Checking Python..."
+log "Step 1/5: Checking Python..."
 if ! command -v python3 >/dev/null 2>&1; then
     err "Python 3 not found. Install Python 3.10+ first: https://python.org"
     exit 1
@@ -63,16 +63,8 @@ if [ "$PY_OK" != "1" ]; then
 fi
 ok "Python $PY_VERSION"
 
-# ─── Step 2: Check z-ai CLI (optional) ─────────────────────────────────
-log "Step 2/6: Checking z-ai CLI (optional)..."
-if ! command -v z-ai >/dev/null 2>&1; then
-    warn "z-ai CLI not found; the new CLI can still run in mock mode for docs-only skills"
-else
-    ok "z-ai CLI present"
-fi
-
-# ─── Step 3: Create/use venv ────────────────────────────────────────────
-log "Step 3/6: Setting up Python environment..."
+# ─── Step 2: Create/use venv ────────────────────────────────────────────
+log "Step 3/5: Setting up Python environment..."
 VENV_DIR="$PROJECT_ROOT/.venv"
 if [ -d "$VENV_DIR" ]; then
     ok "Found existing venv at .venv/"
@@ -95,7 +87,7 @@ fi
 ok "Using Python: $PYTHON"
 
 # ─── Step 4: Install Python dependencies ────────────────────────────────
-log "Step 4/6: Installing Python dependencies..."
+log "Step 3/5: Installing Python dependencies..."
 if [ -f "requirements.txt" ]; then
     $PIP install --upgrade pip --quiet 2>/dev/null || warn "pip self-upgrade skipped"
     $PIP install -r requirements.txt --quiet 2>&1 | tail -5
@@ -107,7 +99,7 @@ $PIP install -e "$PROJECT_ROOT" --quiet 2>&1 | tail -5
 ok "Python package installed"
 
 # ─── Step 5: Register all skills (best effort) ────────────────────────
-log "Step 5/6: Registering skills..."
+log "Step 4/5: Registering skills..."
 REGISTRY_SCRIPT="$PROJECT_ROOT/scripts/register_remaining_skills.py"
 if [ -f "$REGISTRY_SCRIPT" ]; then
     $PYTHON "$REGISTRY_SCRIPT" 2>&1 | tail -8 || warn "Registration script reported issues"
@@ -119,7 +111,7 @@ EXEC_COUNT=$(find "$PROJECT_ROOT/skills" -name "run.py" -path "*/scripts/*" | wc
 ok "Found $SKILL_COUNT skills ($EXEC_COUNT with executable wrappers)"
 
 # ─── Step 6: Install super-z CLI ────────────────────────────────────────
-log "Step 6/6: Installing super-z CLI..."
+log "Step 5/5: Installing super-z CLI..."
 
 mkdir -p "$PROJECT_ROOT/bin"
 chmod +x "$PROJECT_ROOT/bin/super-z" "$PROJECT_ROOT/bin/super-z.py" 2>/dev/null || true

@@ -6,7 +6,7 @@ Loads manifest.json from all sibling skills and provides lookup APIs.
 
 Usage (as a module):
     from registry import SkillRegistry
-    reg = SkillRegistry("/home/z/my-project/skills")
+    reg = SkillRegistry("str(Path(__file__).resolve().parents[2] / "skills")")
     manifest = reg.get_manifest("poler-toolkit")
     deps = reg.get_dependencies("poler-toolkit")
     matches = reg.find_by_extension(".pdf")

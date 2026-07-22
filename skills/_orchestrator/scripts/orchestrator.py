@@ -18,7 +18,7 @@ Usage:
 
     # As a module:
     from orchestrator import Orchestrator
-    orch = Orchestrator("/home/z/my-project/skills")
+    orch = Orchestrator("str(Path(__file__).resolve().parents[2] / "skills")")
     result = orch.process("analyze notes.md", input_path="notes.md")
 
 Author: Task 9 (manifest-based architecture), 2026-07-03

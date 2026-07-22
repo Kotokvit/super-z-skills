@@ -150,23 +150,6 @@ try:
 except ImportError:
     _HAS_LLM_PROVIDER = False
 
-# Backward-compatibility: Copilot-era API (lite versions)
-# These preserve the simple POLEREnhanced / SandboxV2Backend / SandboxBridge API
-# that was used by src/super_z/poler_edit.py and tests/test_sandbox_v2.py before
-# the v3.0 architecture refactor. Qwen v3.0 keeps its own richer API in parallel.
-try:
-    from .poler_enhanced_lite import POLEREnhanced
-    from .sandbox_v2_lite import (
-        SandboxV2Backend as _LiteSandboxV2Backend,
-        SandboxV1Backend as _LiteSandboxV1Backend,
-        SandboxBridge,
-        create_backend,
-    )
-    # Expose under the historical names expected by tests and src/super_z/
-    SandboxV2Backend = _LiteSandboxV2Backend
-    SandboxV1Backend = _LiteSandboxV1Backend
-except ImportError:
-    pass
 
 __all__ = [
     # v3 (local-first, default)
@@ -217,12 +200,6 @@ __all__ = [
     "AgentRole",
     # Shared
     "LLMProvider",
-    # Backward-compatibility (Copilot-era API)
-    "POLEREnhanced",
-    "SandboxV2Backend",
-    "SandboxV1Backend",
-    "SandboxBridge",
-    "create_backend",
     "HostLLMProvider",
     "MockLLMProvider",
 ]

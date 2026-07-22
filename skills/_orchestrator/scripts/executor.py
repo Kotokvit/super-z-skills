@@ -10,7 +10,7 @@ declared schema using its validator.py.
 Usage (as a module):
     from executor import Executor
     from registry import SkillRegistry
-    reg = SkillRegistry("/home/z/my-project/skills")
+    reg = SkillRegistry("str(Path(__file__).resolve().parents[2] / "skills")")
     ex = Executor(reg)
     result = ex.run("poler-toolkit", {"input": "notes.md", "json": True})
 

@@ -15,7 +15,7 @@ Pipeline stages (mirrors DeepSeek audit):
 Usage (as a module):
     from planner import Planner
     from registry import SkillRegistry
-    reg = SkillRegistry("/home/z/my-project/skills")
+    reg = SkillRegistry("str(Path(__file__).resolve().parents[2] / "skills")")
     planner = Planner(reg)
     plan = planner.plan("Проанализируй PDF и сделай отчёт", input_path="x.pdf")
 
