@@ -10,7 +10,7 @@ declared schema using its validator.py.
 Usage (as a module):
     from executor import Executor
     from registry import SkillRegistry
-    reg = SkillRegistry(Path(__file__).resolve().parents[2] / "skills")
+    reg = SkillRegistry("/home/z/my-project/skills")
     ex = Executor(reg)
     result = ex.run("poler-toolkit", {"input": "notes.md", "json": True})
 
@@ -127,6 +127,26 @@ class Executor:
             return self._error_envelope(f"Skill '{skill_name}' crashed: {e}")
 
         elapsed = time.time() - t0
+
+        if proc.returncode != 0:
+            # Fallback: if argparse failed due to unrecognized --json argument, retry without it
+            if "--json" in cmd_args and (
+                "unrecognized arguments" in proc.stderr or 
+                "invalid option" in proc.stderr or
+                "unrecognized option" in proc.stderr
+            ) and "--json" in proc.stderr:
+                cmd_args_no_json = [a for a in cmd_args if a != "--json"]
+                cmd_no_json = ["python3", str(entry_point)] + cmd_args_no_json
+                try:
+                    proc = subprocess.run(
+                        cmd_no_json,
+                        input=stdin_data,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                    )
+                except Exception as retry_err:
+                    return self._error_envelope(f"Skill '{skill_name}' retry crashed: {retry_err}")
 
         if proc.returncode != 0:
             return self._error_envelope(
@@ -341,11 +361,13 @@ class Executor:
 
 def main() -> int:
     import argparse
+    project_root = Path(__file__).resolve().parents[3]
+    default_skills = project_root / "skills"
     ap = argparse.ArgumentParser(description="Execute a single skill")
     ap.add_argument("skill", help="Skill name (e.g., poler-toolkit)")
     ap.add_argument("--input", help="JSON string with input data")
     ap.add_argument("--input-file", help="Path to JSON file with input data")
-    ap.add_argument("--skills-dir", default=str(Path(__file__).resolve().parents[2] / "skills"))
+    ap.add_argument("--skills-dir", default=str(default_skills))
     ap.add_argument("--verbose", "-v", action="store_true")
     args = ap.parse_args()
 

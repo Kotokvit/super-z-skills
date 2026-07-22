@@ -140,15 +140,19 @@ def cmd_skills() -> int:
 
 
 def cmd_signals() -> int:
-    watcher = ORCHESTRATOR / "watcher.py"
-    if not watcher.exists():
-        print(f"{RED}watcher.py not found at {watcher}{RESET}")
+    sys.path.insert(0, str(ORCHESTRATOR))
+    try:
+        from watcher import SIGNAL_PATTERNS, SIGNAL_TO_SKILL
+        print(f"{BOLD}Watcher signal patterns:{RESET}")
+        print()
+        for sig, skill in sorted(SIGNAL_TO_SKILL.items()):
+            print(f"  {sig:<35s} → {skill}")
+        print()
+        print(f"Total: {len(SIGNAL_PATTERNS)} patterns, {len(SIGNAL_TO_SKILL)} mappings")
+        return 0
+    except Exception as e:
+        print(f"{RED}Failed to load watcher signals: {e}{RESET}")
         return 1
-    result = subprocess.run(
-        [PYTHON, str(watcher), "--list-signals"],
-        capture_output=False
-    )
-    return result.returncode
 
 
 def cmd_run_skill(args) -> int:
@@ -160,16 +164,21 @@ def cmd_run_skill(args) -> int:
         print(f"{RED}Skill not found: {args.skill}{RESET}")
         return 1
     run_py = skill_dir / "scripts" / "run.py"
+    backend_flag = getattr(args, 'backend', None)
     if run_py.exists():
-        result = subprocess.run([PYTHON, str(run_py), args.query])
+        cmd = [PYTHON, str(run_py), args.query]
+        if backend_flag:
+            cmd.extend(["--backend", backend_flag])
+        result = subprocess.run(cmd)
         return result.returncode
     llm_wrapper = SKILLS_DIR / "_shared" / "llm_wrapper.py"
     if llm_wrapper.exists():
         print(f"{YELLOW}Skill '{args.skill}' has no executable wrapper. "
               f"Using LLM wrapper directly.{RESET}")
-        result = subprocess.run(
-            [PYTHON, str(llm_wrapper), "--skill", args.skill, "--query", args.query]
-        )
+        cmd = [PYTHON, str(llm_wrapper), "--skill", args.skill, "--query", args.query]
+        if backend_flag:
+            cmd.extend(["--backend", backend_flag])
+        result = subprocess.run(cmd)
         return result.returncode
     print(f"{RED}No run.py or llm_wrapper.py found{RESET}")
     return 1
@@ -357,6 +366,9 @@ def main() -> int:
                         help="enqueue + wait for brief (agent hook)")
     parser.add_argument("--daemon", metavar="ACTION",
                         help="start|stop|restart|status|foreground")
+    parser.add_argument("--backend", default=None,
+                        choices=["zai_cli", "sandbox", "mock"],
+                        help="LLM backend: zai_cli (default), sandbox (internal agents), mock (placeholder)")
     args = parser.parse_args()
 
     if args.help:
@@ -371,12 +383,15 @@ def main() -> int:
         return cmd_watch()
     if args.run:
         # --run SKILL "query..."
-        query = " ".join(args.message) if args.message else ""
-        # Use a simple namespace
-        class _Args:
-            skill = args.run
-            query = query
-        return cmd_run_skill(_Args())
+        query_text = " ".join(args.message) if args.message else ""
+        # Use a simple namespace instead of inner class (avoids closure issue)
+        import types
+        run_args = types.SimpleNamespace(
+            skill=args.run,
+            query=query_text,
+            backend=args.backend,
+        )
+        return cmd_run_skill(run_args)
     if args.daemon:
         return cmd_daemon(args.daemon)
     if args.enqueue:

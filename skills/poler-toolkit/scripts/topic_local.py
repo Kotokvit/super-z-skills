@@ -57,6 +57,7 @@ from topic_common import (
     read_text, is_code, is_code_heuristic, detect_language,
     split_into_chunks, extract_code_entities,
     format_output_human, format_output_json,
+    strip_latex,
 )
 
 # Опциональные зависимости
@@ -296,6 +297,13 @@ def detect_topics(path: str,
     text = read_text(path)
     if not text.strip():
         return {'path': path, 'error': 'empty file', 'overall_topic': ''}
+
+    # ─── STRIP LATEX MARKUP (for .tex files) ──────────────────────────
+    ext = Path(path).suffix.lower() if path else ''
+    if ext in ('.tex', '.latex', '.sty', '.cls', '.bib'):
+        text = strip_latex(text)
+        if not text.strip():
+            return {'path': path, 'error': 'empty after LaTeX stripping', 'overall_topic': ''}
 
     # ─── РЕЖИМ B: КОД ─────────────────────────────────────────────────
     if is_code(text, path):

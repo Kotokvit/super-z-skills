@@ -18,7 +18,7 @@ Usage:
 
     # As a module:
     from orchestrator import Orchestrator
-    orch = Orchestrator(Path(__file__).resolve().parents[2] / "skills")
+    orch = Orchestrator("/home/z/my-project/skills")
     result = orch.process("analyze notes.md", input_path="notes.md")
 
 Author: Task 9 (manifest-based architecture), 2026-07-03
@@ -266,9 +266,11 @@ Examples:
   python3 orchestrator.py list    # list available skills
 """,
     )
+    project_root = Path(__file__).resolve().parents[3]
+    default_skills = project_root / "skills"
     ap.add_argument("query", nargs="?", help="User query in natural language")
     ap.add_argument("--input", help="Input file path")
-    ap.add_argument("--skills-dir", default=str(Path(__file__).resolve().parents[2] / "skills"))
+    ap.add_argument("--skills-dir", default=str(default_skills))
     ap.add_argument("--strategy", default="report",
                     choices=["last", "merge", "report", "files"])
     ap.add_argument("--min-confidence", type=float, default=0.3,

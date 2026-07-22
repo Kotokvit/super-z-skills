@@ -15,7 +15,7 @@ Pipeline stages (mirrors DeepSeek audit):
 Usage (as a module):
     from planner import Planner
     from registry import SkillRegistry
-    reg = SkillRegistry(Path(__file__).resolve().parents[2] / "skills")
+    reg = SkillRegistry("/home/z/my-project/skills")
     planner = Planner(reg)
     plan = planner.plan("Проанализируй PDF и сделай отчёт", input_path="x.pdf")
 
@@ -652,10 +652,13 @@ class Planner:
 
 def main() -> int:
     import argparse
+    from pathlib import Path
+    project_root = Path(__file__).resolve().parents[3]
+    default_skills = project_root / "skills"
     ap = argparse.ArgumentParser(description="Plan skill execution DAG")
     ap.add_argument("query", help="User query in natural language")
     ap.add_argument("--input", help="Input file path (for extension-based matching)")
-    ap.add_argument("--skills-dir", default=str(Path(__file__).resolve().parents[2] / "skills"))
+    ap.add_argument("--skills-dir", default=str(default_skills))
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--verbose", "-v", action="store_true")
     ap.add_argument("--classify", action="store_true",
