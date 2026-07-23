@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Interpreter — Accept/Reject (Stage 5)</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2129;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #2f81f7;
+    --accent-hover: #1f6feb;
+    --critical: #f85149;
+    --high: #db6d28;
+    --medium: #d29922;
+    --low: #58a6ff;
+    --green: #3fb950;
+    --green-bg: #1c3a26;
+    --red-bg: #3a1c1c;
+    --yellow-bg: #3a301c;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    padding: 16px;
+  }
+  h1 {
+    font-size: 22px;
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  h2 {
+    font-size: 16px;
+    margin-bottom: 12px;
+    margin-top: 24px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .sub {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+  }
+  textarea {
+    font-family: "SF Mono", Monaco, "Cascadia Code", "Consolas", monospace;
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    width: 100%;
+    resize: vertical;
+    min-height: 280px;
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  button {
+    background: var(--accent);
+    color: white;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary {
+    background: var(--panel-2);
+    border-color: var(--border);
+    color: var(--text);
+  }
+  button.secondary:hover { background: var(--border); }
+  button.danger { background: var(--critical); }
+  button.danger:hover { background: #d63a32; }
+  button.success { background: var(--green); }
+  button.success:hover { background: #2d8c3b; }
+  select, input[type=text] {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  input[type=text] { width: 200px; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-CRITICAL { background: var(--critical); color: white; }
+  .badge-HIGH { background: var(--high); color: white; }
+  .badge-MEDIUM { background: var(--medium); color: black; }
+  .badge-LOW { background: var(--low); color: black; }
+  .badge-rule {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    margin-left: 6px;
+    font-family: "SF Mono", Monaco, monospace;
+  }
+  .badge-transform {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    margin-left: 6px;
+    font-size: 10px;
+  }
+  .badge-transform.yes { color: var(--green); border-color: var(--green); }
+  .badge-transform.no { color: var(--text-dim); }
+
+  /* Violation card */
+  .violation-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .violation-card.accepted { border-color: var(--green); background: var(--green-bg); }
+  .violation-card.rejected { border-color: var(--critical); background: var(--red-bg); opacity: 0.7; }
+  .violation-card.pending .header { border-left: 3px solid var(--accent); padding-left: 8px; }
+  .violation-card.accepted .header { border-left: 3px solid var(--green); padding-left: 8px; }
+  .violation-card.rejected .header { border-left: 3px solid var(--critical); padding-left: 8px; }
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .header .pos {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-family: "SF Mono", Monaco, monospace;
+    font-size: 12px;
+  }
+  .why { color: var(--text); font-size: 14px; margin-bottom: 8px; }
+  .review {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-top: 8px;
+    font-style: italic;
+  }
+  .diff-block {
+    margin: 10px 0;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .diff-block .diff-header {
+    background: var(--panel-2);
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+  }
+  .diff-block .diff-body {
+    padding: 8px 10px;
+    font-family: "SF Mono", Monaco, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.55;
+  }
+  .diff-block .diff-body.before {
+    color: var(--critical);
+    background: rgba(248,81,73,0.08);
+  }
+  .diff-block .diff-body.after {
+    color: var(--green);
+    background: rgba(63,185,80,0.08);
+  }
+  .seg-equal { color: var(--text); }
+  .seg-remove {
+    background: rgba(248,81,73,0.25);
+    color: var(--critical);
+    text-decoration: line-through;
+  }
+  .seg-add {
+    background: rgba(63,185,80,0.25);
+    color: var(--green);
+    font-weight: 600;
+  }
+  .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .actions button { flex: 0 0 auto; }
+  .actions .apply-note {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-size: 11px;
+    align-self: center;
+  }
+
+  /* Summary bar */
+  .summary-bar {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 16px 0;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .summary-stat { font-size: 13px; }
+  .summary-stat .label { color: var(--text-dim); margin-right: 6px; }
+  .summary-stat .val {
+    font-weight: 600;
+    font-family: "SF Mono", Monaco, monospace;
+  }
+
+  /* Filter bar */
+  .filter-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .filter-bar label {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-right: 4px;
+  }
+  .filter-bar input[type=checkbox] { margin-right: 4px; }
+
+  /* Result modal */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 20px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    max-width: 95vw;
+    max-height: 90vh;
+    overflow: auto;
+    width: 900px;
+  }
+  .modal h2 { margin-top: 0; }
+  .modal pre {
+    background: var(--bg);
+    padding: 12px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    overflow: auto;
+    font-size: 12px;
+    max-height: 60vh;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .modal-close {
+    float: right;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 20px;
+    line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+
+  .empty-state {
+    text-align: center;
+    color: var(--text-dim);
+    padding: 40px 20px;
+    font-style: italic;
+  }
+  .loader {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--text-dim);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .snackbar {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 20px;
+    color: var(--text);
+    font-size: 13px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    z-index: 200;
+  }
+  .snackbar.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<h1>Smart Interpreter — Accept/Reject</h1>
+<div class="sub">Stage 5 — deterministic AST analysis with Stage 4 IR transforms. No LLM.</div>
+
+<div class="layout">
+  <div class="panel">
+    <h2>Source code</h2>
+    <textarea id="source" placeholder="Paste Python or JavaScript source here..."></textarea>
+    <div class="row">
+      <label>
+        Language:
+        <select id="language">
+          <option value="python">Python</option>
+          <option value="javascript">JavaScript</option>
+        </select>
+      </label>
+      <label>
+        Filename:
+        <input type="text" id="filename" value="example.py">
+      </label>
+      <button onclick="loadSample('bad_python')">Sample: bad Python</button>
+      <button onclick="loadSample('bad_js')" class="secondary">Sample: bad JS</button>
+      <button onclick="analyze()" class="success" id="analyzeBtn">Analyze</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Result</h2>
+    <div id="summary" class="summary-bar" style="display:none;"></div>
+    <div class="filter-bar" id="filterBar" style="display:none;">
+      <label><input type="checkbox" id="filterPending" checked onchange="renderViolations()"> Pending</label>
+      <label><input type="checkbox" id="filterAccepted" checked onchange="renderViolations()"> Accepted</label>
+      <label><input type="checkbox" id="filterRejected" checked onchange="renderViolations()"> Rejected</label>
+      <span style="flex:1"></span>
+      <button onclick="acceptAll()" class="success">Accept All</button>
+      <button onclick="rejectAll()" class="danger">Reject All</button>
+      <button onclick="resetDecisions()" class="secondary">Reset</button>
+    </div>
+    <div id="violations">
+      <div class="empty-state">Run Analyze to see violations.</div>
+    </div>
+    <div class="row" id="applyRow" style="display:none;">
+      <button onclick="previewApply()" class="secondary">Preview diff</button>
+      <button onclick="applyAndDownload()" class="success">Apply &amp; Download patched</button>
+      <button onclick="applyAndShow()" class="secondary">Apply &amp; Show patched</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal for showing diff / patched source -->
+<div class="modal-backdrop" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <span class="modal-close" onclick="closeModal()">&times;</span>
+    <h2 id="modalTitle">Result</h2>
+    <pre id="modalContent"></pre>
+  </div>
+</div>
+
+<div class="snackbar" id="snackbar"></div>
+
+<script>
+// ============================================================================
+// State
+// ============================================================================
+const state = {
+  violations: [],       // all violations from last analyze() (clean JSON-safe)
+  decisions: {},        // {violationId: "accept" | "reject"}
+  filename: "example.py",
+  language: "python",
+  source: "",
+};
+
+// ============================================================================
+// Helpers
+// ============================================================================
+function $(id) { return document.getElementById(id); }
+
+function escapeHtml(s) {
+  if (!s) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function showSnackbar(msg) {
+  const el = $("snackbar");
+  el.textContent = msg;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 2400);
+}
+
+function showModal(title, content) {
+  $("modalTitle").textContent = title;
+  $("modalContent").textContent = content;
+  $("modal").classList.add("show");
+}
+
+function closeModal() {
+  $("modal").classList.remove("show");
+}
+
+// ============================================================================
+// Sample loader
+// ============================================================================
+async function loadSample(name) {
+  try {
+    const r = await fetch(`/api/sample/${name}`);
+    const data = await r.json();
+    if (!data.ok) {
+      showSnackbar("Sample load failed: " + data.error);
+      return;
+    }
+    $("source").value = data.source;
+    $("language").value = data.language;
+    $("filename").value = name === "bad_python" ? "sample.py" : "sample.js";
+    showSnackbar("Sample loaded.");
+  } catch (e) {
+    showSnackbar("Network error: " + e.message);
+  }
+}
+
+// ============================================================================
+// Analyze
+// ============================================================================
+async function analyze() {
+  const source = $("source").value;
+  const language = $("language").value;
+  const filename = $("filename").value || (language === "python" ? "example.py" : "example.js");
+
+  if (!source.trim()) {
+    showSnackbar("Source is empty.");
+    return;
+  }
+
+  $("analyzeBtn").disabled = true;
+  $("analyzeBtn").innerHTML = '<span class="loader"></span>Analyzing...';
+
+  try {
+    const r = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source, language, filename }),
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      showSnackbar("Analyze failed: " + (data.error || "unknown"));
+      if (data.syntax_error) {
+        showModal("Syntax error", `Line ${data.syntax_error.line}, col ${data.syntax_error.col}:\n${data.syntax_error.message}\n\nText: ${data.syntax_error.text || "(none)"}`);
+      }
+      return;
+    }
+    state.violations = data.violations || [];
+    state.decisions = {};
+    state.filename = data.filename;
+    state.language = data.language;
+    state.source = source;
+
+    renderSummary(data.summary);
+    renderViolations();
+    $("applyRow").style.display = state.violations.length > 0 ? "flex" : "none";
+    $("filterBar").style.display = state.violations.length > 0 ? "flex" : "none";
+
+    showSnackbar(`Found ${state.violations.length} violations.`);
+  } catch (e) {
+    showSnackbar("Network error: " + e.message);
+  } finally {
+    $("analyzeBtn").disabled = false;
+    $("analyzeBtn").textContent = "Analyze";
+  }
+}
+
+// ============================================================================
+// Render — summary
+// ============================================================================
+function renderSummary(summary) {
+  if (!summary) {
+    $("summary").style.display = "none";
+    return;
+  }
+  $("summary").style.display = "flex";
+  const sev = summary.by_severity || {};
+  const stats = [
+    { label: "Total", val: summary.total },
+    { label: "CRITICAL", val: sev.CRITICAL || 0, color: "var(--critical)" },
+    { label: "HIGH", val: sev.HIGH || 0, color: "var(--high)" },
+    { label: "MEDIUM", val: sev.MEDIUM || 0, color: "var(--medium)" },
+    { label: "LOW", val: sev.LOW || 0, color: "var(--low)" },
+  ];
+  $("summary").innerHTML = stats.map(s =>
+    `<div class="summary-stat"><span class="label">${s.label}</span><span class="val" style="color:${s.color || 'var(--text)'}">${s.val}</span></div>`
+  ).join("");
+}
+
+// ============================================================================
+// Render — violations
+// ============================================================================
+function renderViolations() {
+  const showPending = $("filterPending").checked;
+  const showAccepted = $("filterAccepted").checked;
+  const showRejected = $("filterRejected").checked;
+
+  const visible = state.violations.filter(v => {
+    const d = state.decisions[v.id];
+    if (d === "accept") return showAccepted;
+    if (d === "reject") return showRejected;
+    return showPending;
+  });
+
+  if (visible.length === 0) {
+    $("violations").innerHTML = `<div class="empty-state">No violations to display. ${state.violations.length === 0 ? "Run Analyze first." : "All filtered out."}</div>`;
+    return;
+  }
+
+  $("violations").innerHTML = visible.map(renderViolationCard).join("");
+}
+
+function renderViolationCard(v) {
+  const decision = state.decisions[v.id];
+  const cardClass = decision === "accept" ? "accepted" : decision === "reject" ? "rejected" : "pending";
+  const diff = v.diff || { before: "", after: "", segments: [], has_transform: false };
+  const hasTransform = v.has_transform;
+
+  // Build inline-diff view: segments rendered into a single pre block
+  const segsHtml = (diff.segments || []).map(s => {
+    const cls = s.kind === "remove" ? "seg-remove" : s.kind === "add" ? "seg-add" : "seg-equal";
+    return `<span class="${cls}">${escapeHtml(s.text)}</span>`;
+  }).join("");
+
+  // Build before/after view
+  const beforeHtml = escapeHtml(diff.before || v.source_snippet || "(empty)");
+  let afterHtml;
+  if (!hasTransform) {
+    afterHtml = '<span style="color:var(--text-dim);font-style:italic;">(no auto-fix — manual refactor needed)</span>';
+  } else if (diff.error) {
+    afterHtml = `<span style="color:var(--high);font-style:italic;">(preview failed: ${escapeHtml(diff.error)})</span>`;
+  } else {
+    afterHtml = escapeHtml(diff.after || "(empty)");
+  }
+
+  const position = `L${v.line}:${v.col}`;
+  const endPos = v.end_line !== v.line ? ` — L${v.end_line}:${v.end_col}` : `-${v.end_col}`;
+
+  return `
+    <div class="violation-card ${cardClass}" id="card-${v.id}">
+      <div class="header">
+        <span class="badge badge-${v.severity}">${v.severity}</span>
+        <span class="badge badge-rule">${v.rule_id}</span>
+        <span class="badge badge-transform ${hasTransform ? 'yes' : 'no'}">${hasTransform ? 'IR transform' : 'no auto-fix'}</span>
+        <span class="pos">${position}${endPos}</span>
+      </div>
+      <div class="why">${escapeHtml(v.why || "")}</div>
+      <div class="diff-block">
+        <div class="diff-header">Before (source span)</div>
+        <div class="diff-body before">${beforeHtml}</div>
+      </div>
+      ${hasTransform ? `
+      <div class="diff-block">
+        <div class="diff-header">After (Stage 4 IR transform applied)</div>
+        <div class="diff-body after">${afterHtml}</div>
+      </div>` : ""}
+      ${segsHtml && hasTransform ? `
+      <div class="diff-block">
+        <div class="diff-header">Inline diff</div>
+        <div class="diff-body">${segsHtml}</div>
+      </div>` : ""}
+      <div class="review">Manual review: ${escapeHtml(v.manual_review || "")}</div>
+      <div class="actions">
+        <button onclick="decide('${v.id}','accept')" class="success" ${!hasTransform || decision === 'accept' ? 'disabled' : ''}>Accept</button>
+        <button onclick="decide('${v.id}','reject')" class="danger" ${decision === 'reject' ? 'disabled' : ''}>Reject</button>
+        ${decision ? `<button onclick="decide('${v.id}','')" class="secondary">Undo</button>` : ''}
+        ${!hasTransform ? '<span class="apply-note">No auto-fix available</span>' : ''}
+      </div>
+    </div>
+  `;
+}
+
+// ============================================================================
+// Decision handling
+// ============================================================================
+function decide(vid, choice) {
+  if (choice) {
+    state.decisions[vid] = choice;
+  } else {
+    delete state.decisions[vid];
+  }
+  renderViolations();
+}
+
+function acceptAll() {
+  state.violations.forEach(v => {
+    if (v.has_transform) {
+      state.decisions[v.id] = "accept";
+    }
+  });
+  renderViolations();
+  const count = Object.values(state.decisions).filter(d => d === 'accept').length;
+  showSnackbar(`Accepted ${count} fixable violations (skipped ${state.violations.length - count} without auto-fix).`);
+}
+
+function rejectAll() {
+  state.violations.forEach(v => {
+    state.decisions[v.id] = "reject";
+  });
+  renderViolations();
+  showSnackbar(`Rejected all ${state.violations.length} violations.`);
+}
+
+function resetDecisions() {
+  state.decisions = {};
+  renderViolations();
+  showSnackbar("Decisions reset.");
+}
+
+// ============================================================================
+// Apply
+// ============================================================================
+async function previewApply() {
+  try {
+    const r = await fetch("/api/diff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decisions: state.decisions }),
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      showSnackbar("Diff failed: " + data.error);
+      return;
+    }
+    showModal(
+      `Preview diff (${data.applied_count} applied, ${data.failed_count} failed, of ${data.total_count} accepted)`,
+      data.diff || "(no changes)"
+    );
+  } catch (e) {
+    showSnackbar("Network error: " + e.message);
+  }
+}
+
+async function applyAndShow() {
+  try {
+    const r = await fetch("/api/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decisions: state.decisions }),
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      showSnackbar("Apply failed: " + data.error);
+      return;
+    }
+    showModal(
+      `Patched source (${data.applied_count} applied, ${data.failed_count} failed, ${data.rejected_count} rejected)`,
+      data.patched_source
+    );
+    showSnackbar(`Applied ${data.applied_count} fixes.`);
+  } catch (e) {
+    showSnackbar("Network error: " + e.message);
+  }
+}
+
+async function applyAndDownload() {
+  try {
+    const r = await fetch("/api/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decisions: state.decisions }),
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      showSnackbar("Apply failed: " + data.error);
+      return;
+    }
+    // Trigger download
+    const blob = new Blob([data.patched_source], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const origName = data.filename || "patched.py";
+    const patchedName = origName.replace(/(\.[^.]+)?$/, ".patched$1");
+    a.download = patchedName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showSnackbar(`Downloaded ${patchedName} — ${data.applied_count} fixes applied.`);
+  } catch (e) {
+    showSnackbar("Network error: " + e.message);
+  }
+}
+
+// ============================================================================
+// Keyboard shortcuts
+// ============================================================================
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeModal();
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    e.preventDefault();
+    analyze();
+  }
+});
+
+// Initial focus
+window.addEventListener("load", () => {
+  $("source").focus();
+});
+</script>
+</body>
+</html>
