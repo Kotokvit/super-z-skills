@@ -1,58 +1,42 @@
+```gitignore
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-*.egg
-.eggs/
-dist/
-build/
-.pytest_cache/
-.coverage
-htmlcov/
+*.pyc
+*.pyo
+*.pyd
 
-# Virtual envs
+# Dependencies
 .venv/
 venv/
 env/
-ENV/
+Lib/site-packages/
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Coverage
+.coverage
+coverage/
+htmlcov/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-.DS_Store
-
-# Runtime state
-.context/
-*.log
-dev.log
-download/
-upload/
-tool-results/
-worklog.md
-
-# Node (for skills that use Node)
-node_modules/
-.next/
-npm-debug.log*
+*.tmp
 
 # OS
+.DS_Store
 Thumbs.db
-Desktop.ini
 
-# Secrets
-.env
-.env.local
-.env.*.local
-*.pem
-*.key
-
-# Build artifacts
-*.tar.gz
-*.zip
-staging/
+# Build
+build/
+dist/
+*.egg-info/
+```
