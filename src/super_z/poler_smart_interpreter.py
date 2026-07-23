@@ -57,15 +57,27 @@ class SmartInterpreter:
     """
 
     def __init__(self, source: str, filename: str = "<code>",
-                 force_recompile_rules: bool = False) -> None:
+                 force_recompile_rules: bool = False,
+                 adapter: Any = None,
+                 language: str | None = None) -> None:
         self.source = source
         self.filename = filename
 
-        # Adapter for current interpreter (auto-detects node types)
-        self.adapter = AstAdapter()
+        # Stage 2: adapter selection — explicit adapter, or by language name,
+        # or default (Python) for backward compatibility
+        if adapter is not None:
+            self.adapter = adapter
+        elif language is not None:
+            from .smart_rules import get_adapter_for_language
+            self.adapter = get_adapter_for_language(language)
+        else:
+            # Backward-compat default: Python
+            self.adapter = AstAdapter()
 
         # Load compiled rules (cache invalidates on version/schema change)
+        # Stage 2: pass adapter so rules are filtered by interpreter_targets
         self.rules, self.rule_warnings, self.rule_meta = load_rules(
+            adapter=self.adapter,
             force_recompile=force_recompile_rules
         )
 
@@ -76,7 +88,14 @@ class SmartInterpreter:
         self._custom_rules: list[CompiledRule] = [r for r in self.rules if r.is_custom]
 
         # Parse source — raises SyntaxError if invalid (caller should handle)
-        self.tree = self.adapter.parse(source, filename=filename)
+        # Tree-sitter is more lenient and may not raise, but that's fine
+        try:
+            self.tree = self.adapter.parse(source, filename=filename)
+        except SyntaxError:
+            raise
+        except Exception as e:
+            # Wrap non-SyntaxError parser failures
+            raise SyntaxError(str(e)) from e
         self.lines = source.splitlines()
 
     # ------------------------------------------------------------------ #
@@ -111,12 +130,29 @@ class SmartInterpreter:
             return self._check_deep_nesting(self.tree, depth=0, max_depth=5, rule=rule)
         return []
 
-    def _check_deep_nesting(self, node: ast.AST, depth: int, max_depth: int,
+    def _check_deep_nesting(self, node: Any, depth: int, max_depth: int,
                             rule: CompiledRule) -> list[dict]:
-        """Recursively check for nested if/for/while blocks deeper than max_depth."""
+        """Recursively check for nested if/for/while blocks deeper than max_depth.
+
+        Stage 2: language-agnostic via adapter.get_node_type(). Each adapter
+        exposes its own control-flow node types — we check against a per-
+        interpreter set.
+        """
         out = []
         new_depth = depth
-        if isinstance(node, (ast.If, ast.For, ast.While, ast.With, ast.Try)):
+
+        # Per-interpreter control-flow node types
+        if self.adapter.NAME == "python":
+            control_types = {"If", "For", "While", "With", "Try"}
+        elif self.adapter.NAME == "javascript":
+            control_types = {"if_statement", "for_statement", "for_in_statement",
+                              "while_statement", "do_statement", "switch_statement",
+                              "try_statement"}
+        else:
+            control_types = set()  # unknown adapter — skip deep nesting
+
+        node_type = self.adapter.get_node_type(node)
+        if node_type in control_types:
             new_depth = depth + 1
             if new_depth > max_depth:
                 out.append(self._make_violation(node, rule, {"depth": new_depth}))
@@ -239,8 +275,12 @@ class SmartInterpreter:
 # =============================================================================
 
 def analyze_code(source: str, filename: str = "<code>",
-                 force_recompile_rules: bool = False) -> dict:
-    """Analyze Python source and return a complete report.
+                 force_recompile_rules: bool = False,
+                 language: str | None = None) -> dict:
+    """Analyze source code and return a complete report.
+
+    Stage 2: language parameter selects adapter. If None, defaults to Python
+    (backward-compat). Supported: "python", "javascript".
 
     Returns:
         {
@@ -255,7 +295,8 @@ def analyze_code(source: str, filename: str = "<code>",
     # Step 1: parse syntax
     try:
         interp = SmartInterpreter(source, filename=filename,
-                                  force_recompile_rules=force_recompile_rules)
+                                  force_recompile_rules=force_recompile_rules,
+                                  language=language)
     except SyntaxError as e:
         return {
             "file": filename,

@@ -49,6 +49,7 @@ class CompiledRule:
     node_type: str             # AST class name or "Custom"
     check: Callable[[Any, AstAdapter], Optional[dict]]  # returns captures or None
     is_custom: bool = False    # custom rules don't go through ast.walk
+    interpreter: str = "python"  # which adapter this rule was compiled for
 
 
 # =============================================================================
@@ -107,9 +108,50 @@ def _deep_nesting(_node: Any, adapter: AstAdapter, params: dict) -> Optional[dic
     return None
 
 
-def _extract_string(node: ast.AST) -> Optional[str]:
+@register_custom("js_function_named_eval")
+def _js_function_named_eval(node: Any, adapter: AstAdapter, _params: dict) -> Optional[dict]:
+    """JS-only: match call_expression where function is `eval` (bare or member).
+
+    Tree-sitter JS doesn't have a single field for 'function name' — we need
+    to handle both `eval(x)` (identifier) and `window.eval(x)` (member_expression
+    with property=eval). This custom check does that.
+    """
+    # Get the function field of the call_expression
+    func = adapter.navigate(node, "function")
+    if func is None:
+        return None
+
+    # Case 1: bare identifier — eval(x)
+    if adapter.get_node_type(func) == "identifier":
+        if adapter.navigate(func, "text") == "eval":
+            return {}
+        return None
+
+    # Case 2: member expression — obj.eval(x)
+    if adapter.get_node_type(func) == "member_expression":
+        prop = adapter.navigate(func, "property")
+        if prop is not None and adapter.navigate(prop, "text") == "eval":
+            return {}
+        return None
+
+    return None
+
+
+def _extract_string(node: Any) -> Optional[str]:
+    """Extract string literal from a node (Python ast.Constant or JS string)."""
+    # Python ast.Constant
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
+    # JS string node (tree-sitter) — check via attribute
+    if hasattr(node, "type") and node.type == "string":
+        try:
+            text = node.text.decode("utf-8", errors="replace")
+            # Strip surrounding quotes
+            if len(text) >= 2 and text[0] in ('"', "'", "`") and text[-1] == text[0]:
+                return text[1:-1]
+            return text
+        except Exception:
+            return None
     return None
 
 
@@ -264,8 +306,8 @@ def _compile_pattern(pattern: dict) -> tuple[Callable[[Any, AstAdapter], Optiona
         custom_fn = CUSTOM_CHECKS.get(custom_name)
 
     def ast_check(node, adapter):
-        # Fast reject: type must match
-        if type(node).__name__ != node_type:
+        # Fast reject: type must match (use adapter method for cross-adapter support)
+        if adapter.get_node_type(node) != node_type:
             return None
         if not match_fn(node, adapter):
             return None
@@ -294,23 +336,47 @@ def load_schema(path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def compile_rules(schema: dict, adapter: AstAdapter) -> list[CompiledRule]:
+def compile_rules(schema: dict, adapter: AstAdapter) -> tuple[list[CompiledRule], list[str]]:
     """Compile all rules in schema against the given adapter.
 
-    Rules referencing unknown node types (e.g. a Python 3.13-only node when
-    running on 3.11) are skipped with a warning printed to stderr.
+    Filters rules by `interpreter_targets` (Stage 2). Rules without explicit
+    `interpreter_targets` apply to all interpreters in schema's
+    `default_interpreter_targets`.
+
+    For multi-interpreter rules, `patterns_by_interpreter` provides per-adapter
+    patterns. If absent, top-level `pattern` is used.
+
+    Rules referencing unknown node types are skipped with a warning.
     """
     rules: list[CompiledRule] = []
-    warnings = adapter.validate_schema(schema)
+    warnings = list(adapter.validate_schema(schema))
+
+    default_targets = schema.get("default_interpreter_targets", [adapter.NAME])
+    adapter_name = adapter.NAME
 
     for rule_def in schema.get("rules", []):
-        node_type = rule_def.get("pattern", {}).get("node_type", "")
+        # Stage 2: filter by interpreter_targets
+        targets = rule_def.get("interpreter_targets", default_targets)
+        if adapter_name not in targets:
+            continue  # rule not for this interpreter
+
+        # Stage 2: pick pattern — per-interpreter or top-level
+        patterns_by_interp = rule_def.get("patterns_by_interpreter")
+        if patterns_by_interp and adapter_name in patterns_by_interp:
+            pattern = patterns_by_interp[adapter_name]
+        else:
+            pattern = rule_def.get("pattern")
+        if not pattern:
+            warnings.append(f"{rule_def['id']}: no pattern for {adapter_name} — skipped")
+            continue
+
+        node_type = pattern.get("node_type", "")
 
         # Skip rules whose node type isn't available in this interpreter
         if node_type != "Custom" and not adapter.has_node_type(node_type):
             continue
 
-        check_fn, is_custom = _compile_pattern(rule_def["pattern"])
+        check_fn, is_custom = _compile_pattern(pattern)
 
         rules.append(CompiledRule(
             id=rule_def["id"],
@@ -324,6 +390,7 @@ def compile_rules(schema: dict, adapter: AstAdapter) -> list[CompiledRule]:
             node_type=node_type,
             check=check_fn,
             is_custom=is_custom,
+            interpreter=adapter_name,
         ))
 
     return rules, warnings

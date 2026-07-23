@@ -38,11 +38,23 @@
 # All paths return None when navigation fails — equals:null checks "missing".
 # =============================================================================
 
-schema_version: 1
-interpreter_target: python
+schema_version: 2
+default_interpreter_targets: [python, javascript]
 description: >
-  Smart interpreter rule intents. Compiled by generator.py against the current
-  Python ast module. To add a rule, append below — no Python code changes.
+  Smart interpreter rule intents. Compiled by generator.py against the
+  current interpreter's AST module. To add a rule, append below — no
+  Python code changes.
+
+  Stage 2: schema supports per-rule interpreter_targets and per-interpreter
+  patterns. A rule may have:
+    - interpreter_targets: [python, javascript]  -> applies to both
+    - interpreter_targets: [python]              -> python-only
+    - interpreter_targets: [javascript]          -> js-only
+
+  When a rule applies to multiple interpreters, it may declare per-
+  interpreter patterns via `patterns_by_interpreter` (see R001 below).
+  If `patterns_by_interpreter` is omitted, the top-level `pattern` is
+  used for all interpreters — useful when patterns are identical.
 
 rules:
   # ===========================================================================
@@ -52,25 +64,43 @@ rules:
     name: eval_rce
     severity: CRITICAL
     category: security
+    interpreter_targets: [python, javascript]
     poler_query: eval
     why: "eval() executes arbitrary code. If input comes from user, it's RCE."
     fix_template: "ast.literal_eval({{arg0}})  # safe — only literals"
     manual_review: "If arg is dynamic user input, REWRITE the logic without eval."
-    pattern:
-      node_type: Call
-      match:
-        any:
-          - path: func.id
-            equals: eval
-          - path: func.attr
-            equals: eval
-      captures:
-        arg0: "args.0"
+    patterns_by_interpreter:
+      python:
+        node_type: Call
+        match:
+          any:
+            - path: func.id
+              equals: eval
+            - path: func.attr
+              equals: eval
+        captures:
+          arg0: "args.0"
+      javascript:
+        # tree-sitter JS: call_expression with function=identifier 'eval'
+        node_type: call_expression
+        match:
+          any:
+            - path: function._class
+              type_is: identifier
+            - path: function._class
+              type_is: member_expression
+          # additional condition: function name must be 'eval'
+          # (handled via custom predicate below for simplicity here)
+        custom:
+          name: js_function_named_eval
+        captures:
+          arg0: "arguments.0"
 
   - id: R002
     name: exec_rce
     severity: CRITICAL
     category: security
+    interpreter_targets: [python]
     poler_query: exec
     why: "exec() runs arbitrary code at runtime. Almost never needed."
     fix_template: "# REMOVE exec — inline the statement instead"
@@ -90,6 +120,7 @@ rules:
     name: subprocess_shell_injection
     severity: CRITICAL
     category: security
+    interpreter_targets: [python]
     poler_query: subprocess
     why: "shell=True + string concatenation = command injection."
     fix_template: "subprocess.run({{arg0}}, shell=False)  # pass args as list"
@@ -111,6 +142,7 @@ rules:
     name: pickle_loads
     severity: HIGH
     category: security
+    interpreter_targets: [python]
     poler_query: pickle
     why: "pickle.loads on untrusted data = arbitrary code execution."
     fix_template: "json.loads({{arg0}}.decode('utf-8') if isinstance({{arg0}}, bytes) else {{arg0}})  # safer"
@@ -130,6 +162,7 @@ rules:
     name: pickle_load
     severity: HIGH
     category: security
+    interpreter_targets: [python]
     poler_query: pickle
     why: "pickle.load on untrusted file = arbitrary code execution."
     fix_template: "json.load({{arg0}})  # safer"
@@ -152,6 +185,7 @@ rules:
     name: bare_except
     severity: MEDIUM
     category: correctness
+    interpreter_targets: [python]
     poler_query: except
     why: "Bare except catches KeyboardInterrupt, SystemExit — debugging hell."
     fix_template: "except Exception:  # or more specific"
@@ -166,6 +200,7 @@ rules:
     name: pass_in_except
     severity: MEDIUM
     category: correctness
+    interpreter_targets: [python]
     poler_query: except
     why: "Silent failure — bugs hide forever."
     fix_template: "except Exception as e:\n    logger.exception('...')  # at least log"
@@ -185,6 +220,7 @@ rules:
     name: global_mutation
     severity: MEDIUM
     category: maintainability
+    interpreter_targets: [python]
     poler_query: global
     why: "global + mutation = invisible state, untestable code."
     fix_template: "# Pass state as argument, return new state"
@@ -201,6 +237,7 @@ rules:
     name: deep_nesting
     severity: LOW
     category: maintainability
+    interpreter_targets: [python]
     poler_query: null
     why: "Deep nesting (>= 5 levels) = unreadable, untestable."
     fix_template: "# Extract inner block to a function, or use early return"
@@ -218,6 +255,7 @@ rules:
     name: sql_string_concat
     severity: CRITICAL
     category: security
+    interpreter_targets: [python]
     poler_query: INSERT
     why: "String-concatenated SQL = injection by definition."
     fix_template: "cursor.execute('SQL WITH ? placeholders', (a, b, c))"
@@ -235,6 +273,7 @@ rules:
     name: hardcoded_password
     severity: HIGH
     category: security
+    interpreter_targets: [python]
     poler_query: password
     why: "Hardcoded password in source — leaks via git/VCS."
     fix_template: "os.environ['{{var}}'.upper()]  # from env, never in code"
@@ -257,3 +296,51 @@ rules:
         name: not_env_var_reference
       captures:
         var: "targets.0.id"
+
+  # ===========================================================================
+  # JavaScript-specific rules (Stage 2)
+  # ===========================================================================
+
+  - id: J001
+    name: js_document_write_xss
+    severity: HIGH
+    category: security
+    interpreter_targets: [javascript]
+    poler_query: document
+    why: "document.write executes HTML as parser — XSS vector."
+    fix_template: "element.textContent = {{arg0}}  # safe — escapes automatically"
+    manual_review: "Use textContent or innerText, never document.write."
+    pattern:
+      node_type: call_expression
+      match:
+        all:
+          - path: function._class
+            type_is: member_expression
+          - path: function.object._class
+            type_is: identifier
+          - path: function.object.text
+            equals: document
+          - path: function.property.text
+            equals: write
+      captures:
+        arg0: "arguments.0"
+
+  - id: J002
+    name: js_innerhtml_xss
+    severity: HIGH
+    category: security
+    interpreter_targets: [javascript]
+    poler_query: innerHTML
+    why: "innerHTML = unsanitized input = XSS."
+    fix_template: "element.textContent = {{right}}  # safe"
+    manual_review: "Use textContent, or sanitize HTML with DOMPurify before assigning."
+    pattern:
+      node_type: assignment_expression
+      match:
+        all:
+          - path: left._class
+            type_is: member_expression
+          - path: left.property.text
+            equals: innerHTML
+      captures:
+        right: "right"
