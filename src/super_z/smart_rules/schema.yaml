@@ -29,6 +29,30 @@
 #       name: sql_string_concat       # generator looks up in CUSTOM_CHECKS
 #       params: {max_depth: 5}
 #
+# Transform DSL (Stage 4):
+#   transform:                        # optional — IR transform spec
+#     action: replace|insert_before|insert_after|remove|wrap
+#     new_node:                       # required for replace/insert/wrap
+#       node_type: Call
+#       fields:
+#         func:                       # nested NodeSpec
+#           node_type: Attribute
+#           fields:
+#             value:
+#               node_type: Name
+#               fields: {id: ast, ctx: Load}
+#             attr: literal_eval
+#             ctx: Load
+#         args: ["$capture:arg0"]     # placeholder — resolved from captures
+#         keywords: []
+#     wrap_field: args.0              # required for wrap — where target goes
+#
+# Placeholders in new_node.fields:
+#   - "$capture:NAME"  -> resolved from rule's captures dict at apply time
+#   - "$node:TARGET"   -> the original target_node (used by wrap action)
+#   - NodeSpec dict    -> recursively built via adapter.build()
+#   - scalars          -> passed through as-is
+#
 # Path semantics:
 #   - "func.id"        -> node.func.id (None if any link missing)
 #   - "args.0"         -> node.args[0] (None if list shorter)
@@ -38,7 +62,7 @@
 # All paths return None when navigation fails — equals:null checks "missing".
 # =============================================================================
 
-schema_version: 2
+schema_version: 3
 default_interpreter_targets: [python, javascript]
 description: >
   Smart interpreter rule intents. Compiled by generator.py against the
@@ -55,6 +79,12 @@ description: >
   interpreter patterns via `patterns_by_interpreter` (see R001 below).
   If `patterns_by_interpreter` is omitted, the top-level `pattern` is
   used for all interpreters — useful when patterns are identical.
+
+  Stage 4: rules may declare a `transform` block (or per-interpreter
+  `transforms_by_interpreter`). When a rule matches, the transform is
+  applied to the AST via the IR Transform Engine (transforms.py), not
+  as text replacement. The `fix_template` field remains as a human-
+  readable preview of what the transform will do.
 
 rules:
   # ===========================================================================
@@ -89,12 +119,46 @@ rules:
               type_is: identifier
             - path: function._class
               type_is: member_expression
-          # additional condition: function name must be 'eval'
-          # (handled via custom predicate below for simplicity here)
         custom:
           name: js_function_named_eval
         captures:
           arg0: "arguments.0"
+    # Stage 4: IR transform — REPLACE eval(x) with safe alternative
+    transforms_by_interpreter:
+      python:
+        action: replace
+        new_node:
+          node_type: Call
+          fields:
+            func:
+              node_type: Attribute
+              fields:
+                value:
+                  node_type: Name
+                  fields:
+                    id: ast
+                    ctx: {node_type: Load, fields: {}}
+                attr: literal_eval
+                ctx: {node_type: Load, fields: {}}
+            args: ["$capture:arg0"]
+            keywords: []
+      javascript:
+        # JS doesn't have ast.literal_eval — JSON.parse is the closest
+        # safe alternative for plain JSON data
+        action: replace
+        new_node:
+          node_type: call_expression
+          fields:
+            function:
+              node_type: member_expression
+              fields:
+                object:
+                  node_type: identifier
+                  fields: {text: JSON}
+                property:
+                  node_type: identifier
+                  fields: {text: parse}
+            arguments: ["$capture:arg0"]
 
   - id: R002
     name: exec_rce
@@ -195,6 +259,19 @@ rules:
       match:
         - path: type
           equals: null
+    # Stage 4: IR transform — set .type to Name(id='Exception')
+    transform:
+      action: replace
+      new_node:
+        node_type: ExceptHandler
+        fields:
+          type:
+            node_type: Name
+            fields:
+              id: Exception
+              ctx: {node_type: Load, fields: {}}
+          name: null
+          body: "$node:TARGET.body"
 
   - id: R007
     name: pass_in_except
@@ -344,3 +421,18 @@ rules:
             equals: innerHTML
       captures:
         right: "right"
+    # Stage 4: IR transform — REPLACE assignment's left.property text
+    # (For tree-sitter, this becomes a source splice of innerHTML -> textContent)
+    transform:
+      action: replace
+      new_node:
+        node_type: assignment_expression
+        fields:
+          left:
+            node_type: member_expression
+            fields:
+              object: "$node:TARGET.left.object"
+              property:
+                node_type: identifier
+                fields: {text: textContent}
+          right: "$capture:right"

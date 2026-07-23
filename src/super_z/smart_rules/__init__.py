@@ -38,6 +38,11 @@ from .adapter_protocol import InterpreterAdapter, Position, NodeInfo
 from .ast_adapter import AstAdapter
 from .generator import CompiledRule, compile_rules, load_schema, CUSTOM_CHECKS, register_custom
 from .cache import load_or_compile, invalidate_cache, list_cache
+from .adapter_protocol import NodeSpec, Transformation, TransformAction
+from .transforms import (
+    apply_transformation, apply_transformations,
+    build_from_spec, resolve_placeholder, find_parent,
+)
 
 # Conditional import — tree-sitter may not be installed in all environments
 try:
@@ -114,4 +119,13 @@ __all__ = [
     # Cache
     "invalidate_cache",
     "list_cache",
+    # Stage 4: IR transforms
+    "NodeSpec",
+    "Transformation",
+    "TransformAction",
+    "apply_transformation",
+    "apply_transformations",
+    "build_from_spec",
+    "resolve_placeholder",
+    "find_parent",
 ]

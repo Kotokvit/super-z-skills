@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Iterator, Protocol, runtime_checkable
 
 
-# =============================================================================
+# =============================================================================>
 # Canonical data structures — adapter-agnostic
 # =============================================================================
 
@@ -53,9 +53,91 @@ class NodeInfo:
     source_text: str    # source snippet for this node (may be multi-line)
 
 
+# =============================================================================>
+# Stage 4: IR Transform specification — declarative node + action
 # =============================================================================
+
+class TransformAction:
+    """Enumeration of supported IR transform actions.
+
+    Stage 4: these are the only ways the IR Transform Engine can mutate
+    a tree. Every fix in schema.yaml maps to exactly one action.
+
+    REPLACE       — swap target_node with new_node
+    INSERT_BEFORE — insert new_node as previous sibling of target_node
+    INSERT_AFTER  — insert new_node as next sibling of target_node
+    REMOVE        — delete target_node (no new_node needed)
+    WRAP          — replace target_node with new_node, where new_node
+                    has a placeholder field that target_node is moved into
+                    (e.g. wrap `eval(x)` with `ast.literal_eval(<<target>>)`)
+    """
+    REPLACE = "replace"
+    INSERT_BEFORE = "insert_before"
+    INSERT_AFTER = "insert_after"
+    REMOVE = "remove"
+    WRAP = "wrap"
+
+
+@dataclass(frozen=True)
+class NodeSpec:
+    """Declarative blueprint for constructing a new node via adapter.build().
+
+    Fields:
+        node_type: canonical type name the adapter understands
+                   (e.g. "Call" for Python, "call_expression" for JS)
+        fields: dict of field_name -> value
+                - values may be:
+                  * strings/ints/bools (literal scalars)
+                  * NodeSpec (recursively constructed sub-nodes)
+                  * "$capture:NAME" (resolved from violation captures at
+                    transform-application time)
+                  * "$node:TARGET" (refers to the original target node —
+                    used by WRAP actions to embed the original node inside
+                    a new wrapper)
+                - field "args"/"body" etc. accept lists of the above
+
+    Example (replace eval(x) with ast.literal_eval(x)):
+        NodeSpec(
+            node_type="Call",
+            fields={
+                "func": NodeSpec("Attribute", {
+                    "value": NodeSpec("Name", {"id": "ast"}),
+                    "attr": "literal_eval",
+                }),
+                "args": ["$capture:arg0"],
+            },
+        )
+    """
+    node_type: str
+    fields: dict
+
+
+@dataclass(frozen=True)
+class Transformation:
+    """Declarative IR transformation.
+
+    A CompiledRule with a `transform` field produces one of these per
+    matched violation. SmartInterpreter.apply_transformation() consumes
+    it through the adapter — never touching source text directly.
+
+    Fields:
+        action: one of TransformAction.*
+        target_node: the AST node to act on (passed at runtime, not in schema)
+        new_node: NodeSpec for the new node (REPLACE/INSERT_*/WRAP)
+                  None for REMOVE
+        wrap_field: for WRAP — name of the field in new_node where
+                    target_node should be inserted (defaults to "args.0"
+                    for Python calls, "arguments.0" for JS calls)
+    """
+    action: str
+    target_node: Any
+    new_node: NodeSpec | None = None
+    wrap_field: str | None = None
+
+
+# =============================================================================>
 # The contract
-# =============================================================================
+# =============================================================================>
 
 @runtime_checkable
 class InterpreterAdapter(Protocol):
@@ -185,19 +267,22 @@ class InterpreterAdapter(Protocol):
         ...
 
     # ------------------------------------------------------------------ #
-    # Stage 4: IR transforms — stubs, NotImplementedError until Stage 4
+    # Stage 4: IR transforms — build/emit/query now REQUIRED (no longer stubs)
     # ------------------------------------------------------------------ #
 
     def build(self, node_type: str, fields: dict) -> Any:
         """Construct a new node of the given type with the given fields.
 
-        Stage 4: enables AST→AST transformations (replace eval(x) with
+        Stage 4: enables AST->AST transformations (replace eval(x) with
         ast.literal_eval(x) at the IR level, not as text replacement).
+
+        `fields` may contain:
+          - native scalar values (str/int/bool/None)
+          - native child nodes (already-constructed AST nodes from this adapter)
+          - lists of the above
+        Unknown/unsupported fields are silently ignored (lenient parsing).
         """
-        raise NotImplementedError(
-            f"{self.NAME} adapter: build() is Stage 4 (IR transforms). "
-            "Not implemented yet."
-        )
+        ...
 
     def emit(self, tree: Any) -> str:
         """Emit source code from a tree. Inverse of parse().
@@ -206,10 +291,7 @@ class InterpreterAdapter(Protocol):
         write back to file. Without this, fixes can only be suggested
         as text, not applied.
         """
-        raise NotImplementedError(
-            f"{self.NAME} adapter: emit() is Stage 4 (IR transforms). "
-            "Not implemented yet."
-        )
+        ...
 
     def query(self, tree: Any, pattern: dict) -> Iterator[Any]:
         """Query tree for nodes matching a pattern. Declarative alternative
@@ -217,8 +299,27 @@ class InterpreterAdapter(Protocol):
 
         Stage 4: enables performance optimizations (e.g. tree-sitter
         queries, XPath over XML-like IRs) and rule composition.
+
+        Default implementation walks the tree and applies a generic
+        matcher — adapters with native query languages may override.
         """
-        raise NotImplementedError(
-            f"{self.NAME} adapter: query() is Stage 4 (IR transforms). "
-            "Not implemented yet."
-        )
+        ...
+
+    # ------------------------------------------------------------------ #
+    # Stage 4: Tree mutation — required for applying transformations
+    # ------------------------------------------------------------------ #
+
+    def replace_node(self, parent: Any, field_name: str, old_node: Any,
+                     new_node: Any) -> bool:
+        """Replace `old_node` with `new_node` in `parent[field_name]`.
+
+        Returns True on success, False if old_node not found.
+
+        For list fields, this scans the list and replaces the matching
+        item (by identity). For scalar fields, replaces the value.
+
+        Adapters MUST implement this so the IR Transform Engine can
+        apply REPLACE/INSERT/REMOVE actions without knowing the
+        concrete tree representation.
+        """
+        ...

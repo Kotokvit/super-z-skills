@@ -17,6 +17,21 @@ Key differences from AstAdapter (Python):
   - Source text comes from node.text (bytes) instead of ast.unparse
   - Position comes from start_point/end_point (row, col) Points
 
+Stage 4 additions:
+  - build() — tree-sitter nodes are immutable. We build by emitting
+    source text from a NodeSpec and re-parsing. The returned node is
+    a synthetic single-expression tree's root.
+  - emit() — for tree-sitter, just decode tree.root_node.text. After
+    a tree edit, re-parse the modified source to get a fresh tree.
+  - query() — default impl: walk + pattern match (delegates to
+    generator's matcher). Tree-sitter's native query language is a
+    future optimization.
+  - replace_node() — tree-sitter nodes are immutable. We splice
+    source bytes: take original source, replace [old.start_byte,
+    old.end_byte) with new_node's text, re-parse the result.
+    Returns True on success; caller is responsible for re-emitting
+    the modified tree.
+
 Tree-sitter node types relevant to our schema rules:
   - call_expression         (eval(...), fn(...))
   - member_expression       (obj.method, obj.prop)
@@ -26,14 +41,6 @@ Tree-sitter node types relevant to our schema rules:
   - arguments               (parenthesized args)
   - string                  (string literal)
   - program                 (root)
-
-Path navigation examples (JS-specific):
-  - "function"              -> child_by_field_name("function")
-  - "function.text"         -> source text of function field
-  - "arguments.0"           -> first child of arguments (skip punctuation)
-  - "left"                  -> child_by_field_name("left") for binary/assign
-  - "right"                 -> child_by_field_name("right")
-  - "operator"              -> child_by_field_name("operator") (text)
 """
 from __future__ import annotations
 
@@ -44,7 +51,7 @@ from typing import Any, Iterator
 import tree_sitter_javascript as tsj
 from tree_sitter import Language, Parser, Node
 
-from .adapter_protocol import InterpreterAdapter, Position
+from .adapter_protocol import InterpreterAdapter, Position, NodeSpec
 
 
 # Construct the parser ONCE at module import — heavy operation
@@ -95,19 +102,17 @@ class TreeSitterJsAdapter:
         # is more limited than Python ast's inspect.getmembers.
         self.node_types: set[str] = self._discover_node_types()
 
+        # Stage 4: source bytes cache for replace_node() splicing.
+        # parse() stores the original bytes here so replace_node can splice.
+        self._current_source: bytes | None = None
+
     # ------------------------------------------------------------------ #
     # Introspection
     # ------------------------------------------------------------------ #
 
     @staticmethod
     def _discover_node_types() -> set[str]:
-        """Return known tree-sitter JS node types.
-
-        Tree-sitter doesn't expose a clean API for this in all versions,
-        so we use a curated list. This is the one place where the adapter
-        is less auto-discovering than AstAdapter — but the list is stable
-        across tree-sitter versions.
-        """
+        """Return known tree-sitter JS node types."""
         return _JS_NODE_TYPES
 
     def has_node_type(self, name: str) -> bool:
@@ -141,20 +146,15 @@ class TreeSitterJsAdapter:
         """
         if isinstance(source, str):
             source = source.encode("utf-8")
+        # Stage 4: cache source bytes for replace_node() splicing
+        self._current_source = source
         return _PARSER.parse(source)
 
     def walk(self, tree: Any) -> Iterator[Any]:
-        """Iterate all nodes in the tree, filtering punctuation.
-
-        Tree-sitter exposes punctuation as separate nodes ('(', ';', etc.).
-        These have no semantic meaning for our rules — they're syntactic
-        noise. We filter them out so rules don't accidentally match on
-        them and so the walk resembles Python ast.walk more closely.
-        """
+        """Iterate all nodes in the tree, filtering punctuation."""
         cursor = tree.walk()
         visited = set()
 
-        # Depth-first traversal
         def traverse(node):
             if id(node) in visited:
                 return
@@ -177,16 +177,7 @@ class TreeSitterJsAdapter:
     # ------------------------------------------------------------------ #
 
     def navigate(self, node: Any, path: str) -> Any:
-        """Walk a dotted path from `node`, return the resolved value or None.
-
-        Path syntax (JS-specific additions over base DSL):
-          - "function"             -> child_by_field_name("function")
-          - "arguments"            -> child_by_field_name("arguments")
-          - "left" / "right"       -> for binary/assignment expressions
-          - "text"                 -> source text of node (bytes -> str)
-          - "<field_name>.0"       -> numeric index into named children
-          - Standard segments: _class, _pytype, length, join, lower/upper
-        """
+        """Walk a dotted path from `node`, return the resolved value or None."""
         if path == "":
             return node
         current = node
@@ -213,7 +204,6 @@ class TreeSitterJsAdapter:
         if segment == "length":
             if isinstance(node, (list, tuple)):
                 return len(node)
-            # For tree-sitter nodes, length = number of named children
             if hasattr(node, "named_children"):
                 return len(node.named_children)
             return _MISSING
@@ -241,7 +231,6 @@ class TreeSitterJsAdapter:
                 if 0 <= idx < len(node):
                     return node[idx]
                 return _MISSING
-            # For tree-sitter node, get nth named child (skip punctuation)
             if hasattr(node, "named_children"):
                 named = node.named_children
                 idx = int(segment)
@@ -255,7 +244,6 @@ class TreeSitterJsAdapter:
             child = node.child_by_field_name(segment)
             if child is not None:
                 return child
-            # Field doesn't exist on this node — fall through to None
             return _MISSING
 
         # Fallback: attribute access (for non-tree-sitter objects)
@@ -300,8 +288,8 @@ class TreeSitterJsAdapter:
         sp = node.start_point
         ep = node.end_point
         return Position(
-            line=sp[0] + 1,    # 0-indexed -> 1-indexed
-            col=sp[1],         # 0-indexed (same)
+            line=sp[0] + 1,
+            col=sp[1],
             end_line=ep[0] + 1,
             end_col=ep[1],
         )
@@ -313,56 +301,230 @@ class TreeSitterJsAdapter:
         return type(node).__name__
 
     def get_source_text(self, node: Any, source_lines: list[str]) -> str:
-        """Return the source line for this node, stripped.
-
-        For multi-line nodes, returns the start line.
-        """
+        """Return the source line for this node, stripped."""
         if not hasattr(node, "start_point"):
             return ""
-        line = node.start_point[0]  # 0-indexed
+        line = node.start_point[0]
         if 0 <= line < len(source_lines):
             return source_lines[line].strip()
         return ""
 
     # ------------------------------------------------------------------ #
-    # Stage 4: IR transforms — stubs, NotImplementedError until Stage 4
+    # Stage 4: IR transforms — build / emit / query / replace_node
     # ------------------------------------------------------------------ #
 
     def build(self, node_type: str, fields: dict) -> Any:
-        """Construct a new tree-sitter node. Stage 4 — not yet implemented.
+        """Construct a new tree-sitter node by type name + fields.
 
-        Tree-sitter nodes are immutable parsed-tree nodes — building new
-        ones requires the (unstable) edit API + re-parse. Stage 4 will
-        implement this via tree-sitter's edit operations.
+        Tree-sitter nodes are immutable — we can't construct them
+        in-memory like Python ast nodes. Instead, we emit source text
+        from the NodeSpec and re-parse it, then return the root node
+        of the resulting tree.
+
+        This is less efficient than Python's build() but produces a
+        real tree-sitter Node with valid positions, text, etc.
+
+        Args:
+            node_type: tree-sitter node type, e.g. "call_expression"
+            fields: dict of {field_name: value} where values may be
+                    scalars, NodeSpecs, or lists of the above
+
+        Returns:
+            tree_sitter.Node — root of a freshly-parsed synthetic tree
         """
-        raise NotImplementedError(
-            f"{self.NAME} adapter: build() is Stage 4 (IR transforms). "
-            "Not implemented yet."
-        )
+        src = self._emit_node_source(node_type, fields)
+        # Wrap in expression statement and parse
+        tree = _PARSER.parse(src.encode("utf-8"))
+        # For expression-statement nodes, root_node is program -> expr_stmt -> expr
+        # We unwrap to the actual node the caller asked for
+        return self._unwrap_synthetic(tree.root_node, node_type)
+
+    def _emit_node_source(self, node_type: str, fields: dict) -> str:
+        """Emit source text for a synthetic node of given type + fields.
+
+        Handles common JS node types explicitly. Unknown types fall back
+        to a generic best-effort template.
+        """
+        # Resolve NodeSpec values recursively first
+        resolved = {}
+        for k, v in fields.items():
+            resolved[k] = self._resolve_emit_value(v)
+
+        if node_type == "identifier":
+            return str(resolved.get("text", resolved.get("name", "x")))
+
+        if node_type == "string":
+            text = resolved.get("text", "")
+            # Strip outer quotes if present
+            if len(text) >= 2 and text[0] in ('"', "'", "`") and text[-1] == text[0]:
+                pass
+            else:
+                text = f'"{text}"'
+            return text
+
+        if node_type == "number":
+            return str(resolved.get("text", "0"))
+
+        if node_type == "member_expression":
+            obj = resolved.get("object", "")
+            prop = resolved.get("property", "")
+            obj_src = obj if isinstance(obj, str) else self.unparse(obj)
+            prop_src = prop if isinstance(prop, str) else self.unparse(prop)
+            return f"{obj_src}.{prop_src}"
+
+        if node_type == "call_expression":
+            func = resolved.get("function", "")
+            args = resolved.get("arguments", [])
+            func_src = func if isinstance(func, str) else self.unparse(func)
+            if isinstance(args, list):
+                args_src = ", ".join(
+                    a if isinstance(a, str) else self.unparse(a) for a in args
+                )
+            else:
+                args_src = self.unparse(args)
+            return f"{func_src}({args_src})"
+
+        if node_type == "assignment_expression":
+            left = resolved.get("left", "")
+            right = resolved.get("right", "")
+            left_src = left if isinstance(left, str) else self.unparse(left)
+            right_src = right if isinstance(right, str) else self.unparse(right)
+            return f"{left_src} = {right_src}"
+
+        if node_type == "expression_statement":
+            expr = resolved.get("expression", "")
+            expr_src = expr if isinstance(expr, str) else self.unparse(expr)
+            return f"{expr_src};"
+
+        # Generic fallback — best-effort concatenation
+        parts = []
+        for k, v in resolved.items():
+            v_src = v if isinstance(v, str) else self.unparse(v)
+            parts.append(f"/* {k}={v_src} */")
+        return f"/* unknown:{node_type} */ " + " ".join(parts)
+
+    def _resolve_emit_value(self, v: Any) -> Any:
+        """Resolve NodeSpec into source string for emit; pass through nodes/strings."""
+        if isinstance(v, NodeSpec):
+            # Build a synthetic node, then unparse it back to source
+            sub_node = self.build(v.node_type, v.fields)
+            return self.unparse(sub_node)
+        if isinstance(v, list):
+            return [self._resolve_emit_value(x) for x in v]
+        return v
+
+    def _unwrap_synthetic(self, root: Any, target_type: str) -> Any:
+        """Walk synthetic tree to find first node matching target_type."""
+        if root.type == target_type:
+            return root
+        for child in root.children:
+            if child.type == target_type:
+                return child
+            result = self._unwrap_synthetic(child, target_type)
+            if result is not None:
+                return result
+        # If target_type not found, return first named child (best-effort)
+        named = root.named_children if hasattr(root, "named_children") else []
+        if named:
+            return named[0]
+        return root
 
     def emit(self, tree: Any) -> str:
-        """Emit source code from a tree-sitter tree. Stage 4 — not yet implemented.
+        """Emit source code from a tree-sitter tree.
 
-        For tree-sitter, this is straightforward: walk the tree and emit
-        node.text for leaves in order. But it's only meaningful after
-        tree edits (Stage 4).
+        For tree-sitter, this is just decoding tree.root_node.text.
+        After a replace_node() splice, the tree's root_node.text already
+        reflects the modified source.
         """
-        raise NotImplementedError(
-            f"{self.NAME} adapter: emit() is Stage 4 (IR transforms). "
-            "Not implemented yet."
-        )
+        try:
+            return tree.root_node.text.decode("utf-8", errors="replace")
+        except Exception as e:
+            return f"/* emit error: {e} */"
 
     def query(self, tree: Any, pattern: dict) -> Iterator[Any]:
-        """Query tree for nodes matching pattern. Stage 4 — not yet implemented.
+        """Query tree for nodes matching pattern. Default: walk + match.
 
-        Tree-sitter has a powerful query language (tree-sitter queries)
-        that will be exposed here in Stage 4 for performance and rule
-        composition.
+        Tree-sitter has a native query language (tree-sitter queries)
+        that could be used for performance, but for Stage 4 we use the
+        same walk + match approach as AstAdapter for consistency.
         """
-        raise NotImplementedError(
-            f"{self.NAME} adapter: query() is Stage 4 (IR transforms). "
-            "Not implemented yet."
-        )
+        node_type = pattern.get("node_type")
+        match_def = pattern.get("match", {})
+
+        # Lazy import to avoid circular dep
+        from .generator import _compile_match_block
+        match_fn = _compile_match_block(match_def)
+
+        for node in self.walk(tree):
+            if node_type and self.get_node_type(node) != node_type:
+                continue
+            if match_fn(node, self):
+                yield node
+
+    def replace_node(self, parent: Any, field_name: str,
+                     old_node: Any, new_node: Any) -> bool:
+        """Replace old_node with new_node by splicing source bytes.
+
+        Tree-sitter nodes are immutable — we cannot mutate them in place.
+        Instead, we splice the source: take the original source bytes,
+        replace [old_node.start_byte, old_node.end_byte) with the new
+        node's source text, and re-parse.
+
+        IMPORTANT: This method invalidates the `parent` and `old_node`
+        references — the caller MUST re-walk the returned tree (or
+        use the cache_source() pattern below).
+
+        Returns True on success, False if splice failed.
+
+        Note: Because tree-sitter nodes are immutable, the standard
+        Protocol signature (parent, field_name, old, new) is misleading
+        for JS — we only use old_node's byte range. The parent and
+        field_name args are ignored.
+        """
+        if self._current_source is None:
+            return False
+        if not hasattr(old_node, "start_byte") or not hasattr(old_node, "end_byte"):
+            return False
+
+        # Get new_node's source text
+        if hasattr(new_node, "text"):
+            new_text = new_node.text
+            if isinstance(new_text, str):
+                new_text = new_text.encode("utf-8")
+        elif isinstance(new_node, str):
+            new_text = new_node.encode("utf-8")
+        else:
+            return False
+
+        # Splice: original[:start] + new + original[end:]
+        src = self._current_source
+        start = old_node.start_byte
+        end = old_node.end_byte
+        new_src = src[:start] + new_text + src[end:]
+
+        # Re-parse and update cache
+        self._current_source = new_src
+        # NOTE: we cannot replace `tree` reference in caller's scope.
+        # Caller must call adapter.get_current_tree() to retrieve the
+        # updated tree. This is a known limitation of immutable-AST adapters.
+        self._last_tree = _PARSER.parse(new_src)
+        return True
+
+    def get_current_tree(self) -> Any:
+        """Return the most recently re-parsed tree after a replace_node().
+
+        Tree-sitter nodes are immutable, so replace_node() can't mutate
+        the existing tree. Instead, it re-parses the spliced source and
+        caches the new tree here. SmartInterpreter calls this after
+        applying transformations to get the updated tree.
+        """
+        return getattr(self, "_last_tree", None)
+
+    def get_current_source(self) -> str:
+        """Return the current source bytes (post-splice) as string."""
+        if self._current_source is None:
+            return ""
+        return self._current_source.decode("utf-8", errors="replace")
 
 
 # =============================================================================

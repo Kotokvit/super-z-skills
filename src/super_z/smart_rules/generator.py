@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from .ast_adapter import AstAdapter, _MISSING
+from .adapter_protocol import NodeSpec, Transformation, TransformAction
 
 
 # =============================================================================
@@ -50,6 +51,10 @@ class CompiledRule:
     check: Callable[[Any, AstAdapter], Optional[dict]]  # returns captures or None
     is_custom: bool = False    # custom rules don't go through ast.walk
     interpreter: str = "python"  # which adapter this rule was compiled for
+    transform_factory: Optional[Callable[[Any, dict], Transformation]] = None
+    # If non-None, SmartInterpreter can call factory(target_node, captures) to
+    # produce a Transformation for IR Transform Engine. None = rule has no
+    # automatic fix (text fix_template only).
 
 
 # =============================================================================
@@ -327,6 +332,71 @@ def _compile_pattern(pattern: dict) -> tuple[Callable[[Any, AstAdapter], Optiona
 
 
 # =============================================================================
+# Transform spec compilation — Stage 4
+# =============================================================================
+
+def _dict_to_nodespec(d: dict) -> NodeSpec:
+    """Convert a nested dict from YAML into a NodeSpec tree.
+
+    YAML gives us dicts like:
+        {node_type: Call, fields: {func: {node_type: Name, fields: {id: x}}}}
+    We convert to NodeSpec objects so adapter.build() can recursively construct.
+
+    Strings starting with $ are left as-is (placeholders resolved at
+    transform-application time by transforms.resolve_placeholder).
+    Lists are recursively mapped. Scalars pass through.
+    """
+    if not isinstance(d, dict):
+        raise ValueError(f"expected dict for NodeSpec, got {type(d).__name__}: {d!r}")
+    if "node_type" not in d:
+        raise ValueError(f"NodeSpec dict missing 'node_type': {d!r}")
+    raw_fields = d.get("fields", {})
+    resolved_fields = {}
+    for k, v in raw_fields.items():
+        resolved_fields[k] = _resolve_field_value(v)
+    return NodeSpec(node_type=d["node_type"], fields=resolved_fields)
+
+
+def _resolve_field_value(v):
+    """Recursively resolve a field value from YAML into NodeSpec/list/scalar."""
+    if isinstance(v, dict) and "node_type" in v:
+        return _dict_to_nodespec(v)
+    if isinstance(v, list):
+        return [_resolve_field_value(x) for x in v]
+    return v  # scalar or placeholder string
+
+
+def _compile_transform_spec(transform_def: dict) -> Callable[[Any, dict], Transformation]:
+    """Compile a YAML transform block into a factory closure.
+
+    The factory takes (target_node, captures) at violation-detection time
+    and produces a Transformation ready for transforms.apply_transformation().
+
+    Transform def shape:
+        action: replace|wrap|remove|insert_before|insert_after
+        new_node: {node_type: ..., fields: {...}}   # required except for remove
+        wrap_field: args.0                          # required for wrap
+    """
+    action = transform_def.get("action", "replace")
+    new_node_def = transform_def.get("new_node")
+    wrap_field = transform_def.get("wrap_field")
+
+    # Pre-compile new_node spec once (placeholders stay as strings,
+    # resolved at apply-time by resolve_placeholder)
+    new_node_spec = _dict_to_nodespec(new_node_def) if new_node_def else None
+
+    def factory(target_node: Any, captures: dict) -> Transformation:
+        return Transformation(
+            action=action,
+            target_node=target_node,
+            new_node=new_node_spec,
+            wrap_field=wrap_field,
+        )
+
+    return factory
+
+
+# =============================================================================
 # Top-level compile
 # =============================================================================
 
@@ -378,6 +448,22 @@ def compile_rules(schema: dict, adapter: AstAdapter) -> tuple[list[CompiledRule]
 
         check_fn, is_custom = _compile_pattern(pattern)
 
+        # Stage 4: compile transform spec (per-interpreter or top-level)
+        transforms_by_interp = rule_def.get("transforms_by_interpreter")
+        if transforms_by_interp and adapter_name in transforms_by_interp:
+            transform_def = transforms_by_interp[adapter_name]
+        else:
+            transform_def = rule_def.get("transform")
+
+        transform_factory = None
+        if transform_def:
+            try:
+                transform_factory = _compile_transform_spec(transform_def)
+            except Exception as e:
+                warnings.append(
+                    f"{rule_def['id']}: failed to compile transform: {e}"
+                )
+
         rules.append(CompiledRule(
             id=rule_def["id"],
             name=rule_def.get("name", rule_def["id"]),
@@ -391,6 +477,7 @@ def compile_rules(schema: dict, adapter: AstAdapter) -> tuple[list[CompiledRule]
             check=check_fn,
             is_custom=is_custom,
             interpreter=adapter_name,
+            transform_factory=transform_factory,
         ))
 
     return rules, warnings

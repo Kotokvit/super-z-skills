@@ -11,6 +11,12 @@ The adapter does NOT know about specific rules. It only knows:
   3. How to unparse a sub-node back to source text.
   4. How to extract position / node type / source text from a node.
 
+Stage 4 additions:
+  5. build() — construct new AST nodes by type name + fields.
+  6. emit() — full tree -> source via ast.unparse + ast.fix_missing_locations.
+  7. query() — walk + pattern match (delegates to generator's matcher).
+  8. replace_node() — mutate parent[field_name] to swap/insert/remove.
+
 When the interpreter changes (Python 3.11 -> 3.13, or a different language),
 a different adapter is plugged in. The Protocol stays the same.
 """
@@ -220,30 +226,155 @@ class AstAdapter:
         return ""
 
     # ------------------------------------------------------------------ #
-    # Stage 4: IR transforms — inherited from Protocol as NotImplementedError
+    # Stage 4: IR transforms — build / emit / query / replace_node
     # ------------------------------------------------------------------ #
-    # build(), emit(), query() — inherited stubs raise NotImplementedError
 
     def build(self, node_type: str, fields: dict) -> Any:
-        """Construct a new AST node. Stage 4 — not yet implemented."""
-        raise NotImplementedError(
-            f"{self.NAME} adapter: build() is Stage 4 (IR transforms). "
-            "Not implemented yet."
-        )
+        """Construct a new AST node by type name + fields.
+
+        Lenient: unknown field names are silently ignored (so a schema
+        written for a future Python version doesn't break on current one).
+
+        Args:
+            node_type: ast class name, e.g. "Call", "Name", "Constant"
+            fields: dict of {field_name: value}
+                - scalars (str/int/bool/None) assigned directly
+                - other ast.AST nodes assigned directly
+                - lists of the above assigned as new lists
+                - NodeSpec instances are recursively built via build()
+
+        Returns:
+            New ast.AST instance, with locations set to (1, 0, 1, 0)
+            (caller is responsible for ast.copy_location if needed).
+
+        Raises:
+            ValueError if node_type is not a known ast class.
+        """
+        cls = self.node_types.get(node_type)
+        if cls is None:
+            raise ValueError(
+                f"{self.NAME} adapter: unknown node_type {node_type!r}. "
+                f"Known types: {len(self.node_types)} (call has_node_type to check)."
+            )
+
+        # Resolve NodeSpec values recursively; pass through native nodes/scalars
+        resolved = {}
+        # _fields is the canonical tuple of field names for this AST class
+        valid_fields = set(cls._fields) if hasattr(cls, "_fields") else set()
+
+        for k, v in fields.items():
+            if valid_fields and k not in valid_fields:
+                # Lenient: skip unknown field for this AST class
+                continue
+            resolved[k] = self._resolve_build_value(v)
+
+        node = cls(**resolved)
+
+        # Set dummy locations so ast.unparse / ast.fix_missing_locations work
+        # (real locations are irrelevant — caller will replace_node + re-emit)
+        try:
+            node.lineno = 1
+            node.col_offset = 0
+            node.end_lineno = 1
+            node.end_col_offset = 0
+        except AttributeError:
+            pass  # some nodes (e.g. Module) don't have lineno
+
+        return node
+
+    def _resolve_build_value(self, v: Any) -> Any:
+        """Resolve a value for build() — recursively build NodeSpec, pass through rest."""
+        # Lazy import to avoid circular dep at module load time
+        from .adapter_protocol import NodeSpec
+        if isinstance(v, NodeSpec):
+            return self.build(v.node_type, v.fields)
+        if isinstance(v, list):
+            return [self._resolve_build_value(x) for x in v]
+        if isinstance(v, tuple):
+            return tuple(self._resolve_build_value(x) for x in v)
+        # ast.AST, str, int, bool, None — pass through
+        return v
 
     def emit(self, tree: Any) -> str:
-        """Emit source code from AST. Stage 4 — not yet implemented."""
-        raise NotImplementedError(
-            f"{self.NAME} adapter: emit() is Stage 4 (IR transforms). "
-            "Not implemented yet."
-        )
+        """Emit source code from a tree. Inverse of parse().
+
+        Calls ast.fix_missing_locations first (transforms may have created
+        nodes without lineno/col_offset), then ast.unparse.
+        """
+        try:
+            ast.fix_missing_locations(tree)
+            return ast.unparse(tree)
+        except Exception as e:
+            return f"# emit error: {e}"
 
     def query(self, tree: Any, pattern: dict) -> Iterator[Any]:
-        """Query AST for nodes matching pattern. Stage 4 — not yet implemented."""
-        raise NotImplementedError(
-            f"{self.NAME} adapter: query() is Stage 4 (IR transforms). "
-            "Not implemented yet."
-        )
+        """Query AST for nodes matching a pattern dict.
+
+        Default implementation: walk tree, return nodes whose type matches
+        pattern['node_type'] and (if pattern has 'match') whose conditions
+        all pass. Reuses generator._compile_match_block to avoid duplication.
+        """
+        node_type = pattern.get("node_type")
+        match_def = pattern.get("match", {})
+
+        # Lazy import to avoid circular dep
+        from .generator import _compile_match_block
+        match_fn = _compile_match_block(match_def)
+
+        for node in self.walk(tree):
+            if node_type and self.get_node_type(node) != node_type:
+                continue
+            if match_fn(node, self):
+                yield node
+
+    def replace_node(self, parent: Any, field_name: str,
+                     old_node: Any, new_node: Any) -> bool:
+        """Replace old_node with new_node in parent[field_name].
+
+        Returns True on success, False if old_node not found.
+
+        For list fields: scans list, replaces by identity (is).
+        For scalar fields: replaces by value (assigns new_node).
+        """
+        if parent is None:
+            return False
+
+        if not hasattr(parent, field_name):
+            return False
+
+        field_val = getattr(parent, field_name)
+
+        # List field — scan and replace by identity
+        if isinstance(field_val, list):
+            for i, item in enumerate(field_val):
+                if item is old_node:
+                    if new_node is None:
+                        # REMOVE: delete from list
+                        del field_val[i]
+                    else:
+                        field_val[i] = new_node
+                    return True
+            return False
+
+        # Tuple field — convert to list, replace, convert back
+        if isinstance(field_val, tuple):
+            lst = list(field_val)
+            for i, item in enumerate(lst):
+                if item is old_node:
+                    if new_node is None:
+                        del lst[i]
+                    else:
+                        lst[i] = new_node
+                    setattr(parent, field_name, tuple(lst))
+                    return True
+            return False
+
+        # Scalar field — direct assignment (only if old matches)
+        if field_val is old_node:
+            setattr(parent, field_name, new_node)
+            return True
+
+        return False
 
 
 # Sentinels

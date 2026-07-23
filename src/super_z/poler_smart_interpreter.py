@@ -33,7 +33,10 @@ import ast
 from typing import Any
 
 from .poler_edit import PolerEdit
-from .smart_rules import load_rules, AstAdapter, CompiledRule
+from .smart_rules import (
+    load_rules, AstAdapter, CompiledRule,
+    apply_transformation, apply_transformations,
+)
 
 
 # =============================================================================
@@ -191,6 +194,14 @@ class SmartInterpreter:
                 rendered = self.adapter.unparse(v) if hasattr(v, "lineno") or hasattr(v, "start_point") else str(v)
             fix = fix.replace("{{" + k + "}}", rendered)
 
+        # Stage 4: build Transformation object if rule has transform_factory
+        transformation = None
+        if rule.transform_factory is not None:
+            try:
+                transformation = rule.transform_factory(node, captures)
+            except Exception:
+                transformation = None
+
         return {
             "rule_id": rule.id,
             "rule_name": rule.name,
@@ -206,6 +217,119 @@ class SmartInterpreter:
             "source_snippet": source_line,
             "ast_node_type": node_type,
             "context": captures,
+            # Stage 4: target node reference + compiled Transformation
+            # _node is intentionally underscore-prefixed — callers should not
+            # introspect; use apply_fix(violation) instead.
+            "_node": node,
+            "transformation": transformation,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Stage 4: Apply IR transformations
+    # ------------------------------------------------------------------ #
+
+    def apply_fix(self, violation: dict) -> dict:
+        """Apply a single violation's transformation to the parsed tree.
+
+        Returns a result dict with:
+          - success: bool
+          - message: str (human-readable status)
+          - action: str (replace/wrap/remove/insert_*)
+          - source_before: str
+          - source_after: str (for Python, re-emit tree; for JS, get_current_source)
+
+        If the violation has no transformation (rule has no transform_factory),
+        returns success=False, message='no transformation'.
+        """
+        transform = violation.get("transformation")
+        if transform is None:
+            return {
+                "success": False,
+                "message": "no transformation",
+                "action": None,
+                "source_before": self.source,
+                "source_after": self.source,
+            }
+
+        source_before = self.source
+        captures = violation.get("context", {})
+        try:
+            ok, msg = apply_transformation(
+                self.tree, transform, self.adapter, captures
+            )
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"exception: {e}",
+                "action": transform.action,
+                "source_before": source_before,
+                "source_after": source_before,
+            }
+
+        # Get resulting source
+        if self.adapter.NAME == "javascript":
+            # tree-sitter: source was spliced, retrieve from adapter
+            source_after = self.adapter.get_current_source()
+            # Update tree to the new one
+            new_tree = self.adapter.get_current_tree()
+            if new_tree is not None:
+                self.tree = new_tree
+        else:
+            # Python ast: tree was mutated in place, re-emit
+            source_after = self.adapter.emit(self.tree)
+
+        # Update self.source so subsequent fixes apply to the modified source
+        self.source = source_after
+        self.lines = source_after.splitlines()
+
+        return {
+            "success": ok,
+            "message": msg,
+            "action": transform.action,
+            "source_before": source_before,
+            "source_after": source_after,
+        }
+
+    def apply_all_fixes(self, violations: list[dict]) -> dict:
+        """Apply all transformations from a list of violations.
+
+        Transformations are applied in reverse order (last violation first)
+        to keep earlier line/byte offsets valid as the source mutates.
+
+        Returns a summary dict:
+          - total: int
+          - applied: int (successful)
+          - failed: int
+          - results: list of per-violation result dicts
+          - final_source: str
+        """
+        # Filter to only violations that have a transformation
+        fixable = [v for v in violations if v.get("transformation") is not None]
+        # Reverse: last violation first (preserves offsets for earlier ones)
+        fixable.reverse()
+
+        results = []
+        applied = 0
+        failed = 0
+
+        for v in fixable:
+            r = self.apply_fix(v)
+            results.append({
+                "rule_id": v["rule_id"],
+                "line": v["line"],
+                **r,
+            })
+            if r["success"]:
+                applied += 1
+            else:
+                failed += 1
+
+        return {
+            "total": len(fixable),
+            "applied": applied,
+            "failed": failed,
+            "results": results,
+            "final_source": self.source,
         }
 
     # ------------------------------------------------------------------ #
