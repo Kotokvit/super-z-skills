@@ -1,19 +1,18 @@
 """
-ast_adapter.py — Adapter that bridges schema intents to current interpreter's AST.
+ast_adapter.py — Python `ast` module adapter.
+
+Implements InterpreterAdapter Protocol (see adapter_protocol.py) for the
+Python interpreter. This is the reference implementation — when writing
+new adapters (tree-sitter JS, etc.), use this as a template.
 
 The adapter does NOT know about specific rules. It only knows:
   1. What AST node types exist in this interpreter (introspected at construction).
   2. How to navigate paths through a node (e.g. "func.value.id").
   3. How to unparse a sub-node back to source text.
+  4. How to extract position / node type / source text from a node.
 
 When the interpreter changes (Python 3.11 -> 3.13, or a different language),
-the adapter is re-created. The generator then re-compiles the schema against
-the new adapter. The schema YAML does not change.
-
-For non-Python interpreters (tree-sitter for JS, rust-analyzer, etc.), a sibling
-adapter implementing the same interface can be plugged in. The schema's
-`interpreter_target: python` annotation filters rules to those whose node_type
-is meaningful for this adapter.
+a different adapter is plugged in. The Protocol stays the same.
 """
 from __future__ import annotations
 
@@ -22,23 +21,26 @@ import inspect
 import sys
 from typing import Any, Iterator
 
+from .adapter_protocol import InterpreterAdapter, Position
+
 
 # Path DSL operators that generator.py understands:
 #   "func.id"          -> attribute chain
 #   "args.0"           -> numeric index into list/tuple
 #   "keywords.shell.value" -> keyword lookup by .arg, then .value
 #   "body.length"      -> len() of a list
-#   "body.0.type"      -> type(node).__name__ of indexed child
+#   "body.0._class"    -> canonical type name of indexed child
 #   "names.join"       -> ", ".join(list_of_strings)
 #   "id.lower"         -> str.lower() of a string field
-#   "value.value.kind" -> type(x).__name__ of nested constant
+#   "value.value._pytype" -> Python type name of nested constant
 
 
 class AstAdapter:
-    """Bridge between schema paths and concrete AST nodes for this interpreter.
+    """Python `ast` module adapter. Implements InterpreterAdapter Protocol.
 
     The adapter is the ONLY thing that knows about Python's `ast` module.
-    Everything else (schema, generator, smart interpreter) is language-neutral.
+    Everything else (schema, generator, smart interpreter) is language-neutral
+    and operates through the Protocol interface.
     """
 
     NAME = "python"
@@ -87,25 +89,29 @@ class AstAdapter:
         return warnings
 
     # ------------------------------------------------------------------ #
+    # Parsing & traversal
+    # ------------------------------------------------------------------ #
+
+    def parse(self, source: str, filename: str = "<code>") -> ast.AST:
+        """Parse source into AST. Raises SyntaxError on invalid syntax."""
+        return ast.parse(source, filename=filename)
+
+    def walk(self, tree: ast.AST) -> Iterator[ast.AST]:
+        """Iterate all nodes in the tree."""
+        return ast.walk(tree)
+
+    def iter_children(self, node: ast.AST) -> Iterator[ast.AST]:
+        """Iterate direct children of a node."""
+        return ast.iter_child_nodes(node)
+
+    # ------------------------------------------------------------------ #
     # Path navigation — the heart of the pattern DSL
     # ------------------------------------------------------------------ #
 
     def navigate(self, node: Any, path: str) -> Any:
         """Walk a dotted path from `node`, return the resolved value or None.
 
-        Path syntax:
-          "func.id"             -> node.func.id
-          "args.0"              -> node.args[0]      (numeric index)
-          "args.0.type"         -> type(node.args[0]).__name__
-          "body.length"         -> len(node.body)
-          "body.0.type"         -> type(node.body[0]).__name__
-          "keywords.shell.value"-> find kw with .arg=='shell', return .value
-          "names.join"          -> ", ".join(node.names) (strings)
-          "id.lower"            -> node.id.lower()   (string method call)
-          "value.value.kind"    -> type(node.value.value).__name__
-
-        Navigation never raises — missing path returns None. This lets rules
-        declare patterns that match across optional fields.
+        See adapter_protocol.py for path syntax specification.
         """
         if path == "":
             return node
@@ -127,8 +133,9 @@ class AstAdapter:
                 return len(node)
             return _MISSING
 
-        # Special: "_class" — AST class name (use _class to avoid clash with
-        # the ExceptHandler.type field, which is the exception type or None).
+        # Special: "_class" — canonical node type name (use _class to avoid
+        # clash with the ExceptHandler.type field, which is the exception
+        # type or None).
         if segment == "_class":
             return type(node).__name__
 
@@ -181,19 +188,67 @@ class AstAdapter:
         except Exception:
             return "?"
 
-    def walk(self, tree: ast.AST) -> Iterator[ast.AST]:
-        """Iterate all nodes in the tree. Adapter exposes this so non-Python
-        adapters can plug in their own traversal (e.g. tree-sitter cursors)."""
-        return ast.walk(tree)
+    # ------------------------------------------------------------------ #
+    # Node metadata — Protocol methods
+    # ------------------------------------------------------------------ #
 
-    def iter_children(self, node: ast.AST) -> Iterator[ast.AST]:
-        """Iterate direct children of a node."""
-        return ast.iter_child_nodes(node)
+    def get_position(self, node: Any) -> Position:
+        """Return source position of a node.
 
-    def parse(self, source: str, filename: str = "<code>") -> ast.AST:
-        """Parse source into AST. Raises SyntaxError on invalid syntax."""
-        return ast.parse(source, filename=filename)
+        Python ast nodes have lineno (1-indexed), col_offset (0-indexed),
+        end_lineno (1-indexed), end_col_offset (0-indexed).
+        """
+        line = getattr(node, "lineno", 1)
+        col = getattr(node, "col_offset", 0)
+        end_line = getattr(node, "end_lineno", line)
+        end_col = getattr(node, "end_col_offset", col)
+        return Position(line=line, col=col, end_line=end_line, end_col=end_col)
+
+    def get_node_type(self, node: Any) -> str:
+        """Return canonical node type name (Python ast class name)."""
+        return type(node).__name__
+
+    def get_source_text(self, node: Any, source_lines: list[str]) -> str:
+        """Return the source line(s) for this node, stripped.
+
+        For single-line nodes, returns the stripped line. For multi-line,
+        returns the first line (sufficient for violation display).
+        """
+        line = getattr(node, "lineno", 1)
+        if 0 < line <= len(source_lines):
+            return source_lines[line - 1].strip()
+        return ""
+
+    # ------------------------------------------------------------------ #
+    # Stage 4: IR transforms — inherited from Protocol as NotImplementedError
+    # ------------------------------------------------------------------ #
+    # build(), emit(), query() — inherited stubs raise NotImplementedError
+
+    def build(self, node_type: str, fields: dict) -> Any:
+        """Construct a new AST node. Stage 4 — not yet implemented."""
+        raise NotImplementedError(
+            f"{self.NAME} adapter: build() is Stage 4 (IR transforms). "
+            "Not implemented yet."
+        )
+
+    def emit(self, tree: Any) -> str:
+        """Emit source code from AST. Stage 4 — not yet implemented."""
+        raise NotImplementedError(
+            f"{self.NAME} adapter: emit() is Stage 4 (IR transforms). "
+            "Not implemented yet."
+        )
+
+    def query(self, tree: Any, pattern: dict) -> Iterator[Any]:
+        """Query AST for nodes matching pattern. Stage 4 — not yet implemented."""
+        raise NotImplementedError(
+            f"{self.NAME} adapter: query() is Stage 4 (IR transforms). "
+            "Not implemented yet."
+        )
 
 
-# Sentinel for "path does not resolve" — distinct from None which is a valid value
+# Sentinels
 _MISSING = object()
+
+# Verify AstAdapter satisfies the Protocol (runtime check)
+assert isinstance(AstAdapter(), InterpreterAdapter), \
+    "AstAdapter does not implement InterpreterAdapter Protocol"

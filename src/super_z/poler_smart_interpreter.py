@@ -129,10 +129,19 @@ class SmartInterpreter:
     # ------------------------------------------------------------------ #
 
     def _make_violation(self, node: ast.AST, rule: CompiledRule, captures: dict) -> dict:
-        """Create a violation record with line/col + source snippet + rendered fix."""
-        lineno = getattr(node, "lineno", 1)
-        col = getattr(node, "col_offset", 0)
-        source_line = self.lines[lineno - 1] if 0 < lineno <= len(self.lines) else ""
+        """Create a violation record with line/col + source snippet + rendered fix.
+
+        Uses adapter Protocol methods (get_position, get_node_type,
+        get_source_text) — never inspects the node directly. This keeps
+        SmartInterpreter language-agnostic: it doesn't know whether
+        `node` is a Python ast.AST or a tree-sitter Node.
+        """
+        # Position via adapter Protocol
+        pos = self.adapter.get_position(node)
+        # Source snippet via adapter Protocol
+        source_line = self.adapter.get_source_text(node, self.lines)
+        # Node type via adapter Protocol
+        node_type = self.adapter.get_node_type(node)
 
         # Render fix template with captures (unparse complex captures)
         fix = rule.fix_template
@@ -143,7 +152,7 @@ class SmartInterpreter:
                 rendered = v
             else:
                 # AST node — unparse back to source
-                rendered = self.adapter.unparse(v) if isinstance(v, ast.AST) else str(v)
+                rendered = self.adapter.unparse(v) if hasattr(v, "lineno") or hasattr(v, "start_point") else str(v)
             fix = fix.replace("{{" + k + "}}", rendered)
 
         return {
@@ -154,10 +163,12 @@ class SmartInterpreter:
             "why": rule.why,
             "fix": fix,
             "manual_review": rule.manual_review,
-            "line": lineno,
-            "col": col,
-            "source_snippet": source_line.strip(),
-            "ast_node_type": type(node).__name__,
+            "line": pos.line,
+            "col": pos.col,
+            "end_line": pos.end_line,
+            "end_col": pos.end_col,
+            "source_snippet": source_line,
+            "ast_node_type": node_type,
             "context": captures,
         }
 

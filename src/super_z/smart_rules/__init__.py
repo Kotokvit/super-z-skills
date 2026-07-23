@@ -1,13 +1,24 @@
 """
 smart_rules — declarative rule system for SmartInterpreter.
 
-Rule intents live in schema.yaml (language-agnostic).
-AstAdapter introspects current interpreter's ast module.
-Generator compiles intents -> executable CompiledRules.
-Cache invalidates on interpreter/version/schema change.
+Architecture (Stage 1 — formalized adapter contract):
+    adapter_protocol.py  (InterpreterAdapter Protocol — the ABI)
+        ^
+        |  implements
+        |
+    ast_adapter.py       (Python adapter — reference implementation)
+        |
+        v
+    generator.py         (compiles schema intents -> CompiledRules)
+        |
+        v
+    cache.py             (in-memory memoization by interpreter+version+schema)
+        |
+        v
+    schema.yaml          (rule intents — stable across versions)
 
 Public API:
-    from super_z.smart_rules import load_rules
+    from super_z.smart_rules import load_rules, InterpreterAdapter, AstAdapter
     rules, warnings, meta = load_rules()
     # rules: list[CompiledRule]
     # rules[i].check(node, adapter) -> Optional[dict]  (dict = captures)
@@ -17,6 +28,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from .adapter_protocol import InterpreterAdapter, Position, NodeInfo
 from .ast_adapter import AstAdapter
 from .generator import CompiledRule, compile_rules, load_schema, CUSTOM_CHECKS, register_custom
 from .cache import load_or_compile, invalidate_cache, list_cache
@@ -42,13 +54,20 @@ def load_rules(schema_path: str | None = None,
 
 
 __all__ = [
+    # Protocol + dataclasses
+    "InterpreterAdapter",
+    "Position",
+    "NodeInfo",
+    # Concrete adapter
     "AstAdapter",
+    # Generator
     "CompiledRule",
     "compile_rules",
     "load_rules",
     "load_schema",
-    "invalidate_cache",
-    "list_cache",
     "register_custom",
     "CUSTOM_CHECKS",
+    # Cache
+    "invalidate_cache",
+    "list_cache",
 ]
