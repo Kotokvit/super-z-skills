@@ -153,6 +153,21 @@ DOMAIN_SEEDS: Dict[str, List[str]] = {
         'liability', 'amendment', 'ordinance', 'verdict', 'tribunal',
         'закон', 'юрисдикци', 'прецедент', 'иск', 'договор',
     ],
+    # Семена для security/code-review домена — позволяют POLER правильно
+    # распознавать опасные паттерны в исходном коде (eval, exec, subprocess,
+    # pickle, SQL injection и т.д.). Раньше они попадали в 'general'.
+    'security': [
+        'eval', 'exec', 'compile', '__import__', 'getattr', 'setattr',
+        'subprocess', 'shell', 'os.system', 'popen', 'spawn',
+        'pickle', 'loads', 'load', 'marshal', 'shelve',
+        'sql', 'insert', 'select', 'update', 'delete', 'drop',
+        'password', 'pwd', 'secret', 'token', 'credential',
+        'inject', 'xss', 'csrf', 'rce', 'ssrf',
+        'try', 'except', 'finally', 'raise', 'assert',
+        'global', 'nonlocal',
+        'injection', 'vulnerability', 'exploit', 'sanitize', 'escape',
+        'уязвим', 'инъекци', 'парол', 'токен', 'секрет',
+    ],
 }
 
 # ═══════════════════════════════════════════════════════════════════════

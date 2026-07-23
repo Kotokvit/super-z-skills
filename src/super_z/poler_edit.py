@@ -40,7 +40,11 @@ class PolerEdit:
 
     def analyze(self) -> dict[str, Any]:
         analyzer = PolerAnalyzer()
-        keywords = [self.query] if self.query else None
+        # Split the query by commas so that "eval, exec" becomes two keywords
+        # instead of one literal string "eval, exec". Empty parts are dropped.
+        keywords = None
+        if self.query and self.query.strip():
+            keywords = [k.strip() for k in self.query.split(",") if k.strip()] or None
         try:
             poler_v3 = analyzer.build_veins(
                 self.text, keywords=keywords, source_file=self.source

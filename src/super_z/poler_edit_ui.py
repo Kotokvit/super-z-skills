@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
 from .poler_edit import PolerEdit
+from .poler_smart_interpreter import analyze_code as smart_analyze_code
 
 
 # ============================================================================
@@ -53,6 +54,12 @@ textarea {{ width:100%; min-height:240px; resize:vertical; background:var(--bg);
 input {{ width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:9px 10px; font:inherit; }}
 button.submit {{ margin-top:12px; background:var(--accent); color:#08251d; border:0; border-radius:6px; padding:10px 22px; font-weight:700; font-size:15px; cursor:pointer; }}
 button.submit:hover {{ background:#7ee5c2; }}
+button.submit.smart {{ background:var(--accent2); margin-left:8px; }}
+button.submit.smart:hover {{ background:#9bc8ff; }}
+.button-row {{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }}
+.mode-row {{ display:flex; gap:18px; margin-top:14px; padding:10px 12px; background:var(--bg); border:1px solid var(--line); border-radius:6px; flex-wrap:wrap; }}
+.mode-opt {{ display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:13px; cursor:pointer; }}
+.mode-opt input {{ cursor:pointer; }}
 
 .result {{ margin-top:20px; }}
 .summary-box {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:14px; }}
@@ -133,7 +140,16 @@ details.table-wrap tr:hover td {{ background:var(--soft); }}
 <form method="post"><div class="grid">
 <section class="field"><label for="query">Запит (ключове слово или слова через запятую)</label><input id="query" name="query" value="{query}" placeholder="Например: ИИ  или  риск, угроза, возможность"></section>
 <section class="field"><label for="source">Файл / мова (необов'язково)</label><input id="source" name="source" value="{source}" placeholder="example.py, article.txt  (для кода добавляется синтаксическая проверка)"><label for="text" style="margin-top:10px;">Текст или код</label><textarea id="text" name="text" placeholder="Вставьте текст или код для анализа...">{text}</textarea></section>
-</div><button type="submit" class="submit">Анализировать</button></form>
+</div>
+<div class="mode-row">
+  <label class="mode-opt"><input type="radio" name="mode" value="analyze" {chk_analyze}> Анализ (POLER v3.0)</label>
+  <label class="mode-opt"><input type="radio" name="mode" value="smart" {chk_smart}> Smart-анализ Python (AST + правила + POLER)</label>
+</div>
+<div class="button-row">
+  <button type="submit" class="submit">Анализировать</button>
+  <button type="submit" name="mode" value="smart" class="submit smart">⚡ Smart-анализ Python</button>
+</div>
+</form>
 
 {result}
 </main>
@@ -193,11 +209,14 @@ _PRESETS = {
 }
 
 
-def _build_page(query: str, source: str, text: str, result: str) -> str:
+def _build_page(query: str, source: str, text: str, result: str, mode: str = "analyze") -> str:
     """Render the full HTML page with presets injected as JSON."""
     presets_json = json.dumps(_PRESETS, ensure_ascii=False)
+    chk_analyze = "checked" if mode != "smart" else ""
+    chk_smart = "checked" if mode == "smart" else ""
     return _PAGE.format(
-        query=query, source=source, text=text, result=result
+        query=query, source=source, text=text, result=result,
+        chk_analyze=chk_analyze, chk_smart=chk_smart,
     ).replace("__PRESETS_JSON__", presets_json)
 
 
@@ -470,6 +489,184 @@ def _render_result(analysis: dict, full_text: str = "") -> str:
 
 
 # ============================================================================
+#  Smart-анализ — render the SmartInterpreter report
+# ============================================================================
+
+_SEV_COLORS = {
+    "CRITICAL": "#f4b8bf",
+    "HIGH":     "#f4d4a0",
+    "MEDIUM":   "#f5e89c",
+    "LOW":      "#c5e8b8",
+}
+_SEV_BG = {
+    "CRITICAL": "#3a1820",
+    "HIGH":     "#3a2c18",
+    "MEDIUM":   "#363318",
+    "LOW":      "#1e3a26",
+}
+
+
+def _render_smart_summary(summary: dict) -> str:
+    """Top summary box: total + by severity."""
+    total = summary.get("total", 0)
+    by_sev = summary.get("by_severity", {}) or {}
+    chips = "".join(
+        '<span class="word-chip" style="background:{bg};color:{fg};border-color:{fg};">{sev}<span class="num">×{cnt}</span></span>'.format(
+            sev=sev, cnt=by_sev.get(sev, 0),
+            bg=_SEV_BG.get(sev, "var(--bg)"),
+            fg=_SEV_COLORS.get(sev, "var(--text)"),
+        )
+        for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+    )
+    return (
+        '<div class="summary-box">'
+        '<div class="summary-line">⚡ Smart-анализ: найдено <strong>{total}</strong> нарушений</div>'
+        '<div class="top-words">{chips}</div>'
+        '<div class="summary-line" style="color:var(--muted);font-size:12px;margin-top:8px;">'
+        'Без LLM. AST-walk + правила + POLER для контекста. Сортировка по severity.</div>'
+        '</div>'
+    ).format(total=total, chips=chips)
+
+
+def _render_smart_violation(index: int, v: dict) -> str:
+    """Render one smart-analysis violation as a fragment card."""
+    sev = v.get("severity", "LOW")
+    sev_color = _SEV_COLORS.get(sev, "var(--text)")
+    sev_bg = _SEV_BG.get(sev, "var(--bg)")
+    rule_id = html.escape(str(v.get("rule_id", "?")))
+    line = v.get("line", "?")
+    col = v.get("col", "?")
+    why = html.escape(str(v.get("why", "")))
+    fix = html.escape(str(v.get("fix", "")))
+    manual = html.escape(str(v.get("manual_review", "")))
+    snippet = html.escape(str(v.get("source_snippet", "")))
+    node_type = html.escape(str(v.get("ast_node_type", "?")))
+    poler = v.get("poler") or {}
+    poler_html = ""
+    if poler:
+        poler_html = (
+            '<div class="metric"><div class="metric-label">POLER count</div>'
+            '<div class="metric-value blue">{cnt}</div></div>'
+            '<div class="metric"><div class="metric-label">R (resonance)</div>'
+            '<div class="metric-value green">{r}</div></div>'
+            '<div class="metric"><div class="metric-label">domain</div>'
+            '<div class="metric-value">{dom}</div></div>'
+        ).format(
+            cnt=poler.get("total_count", 0),
+            r=_fmt(poler.get("total_resonance")),
+            dom=html.escape(str(poler.get("domain", "general"))),
+        )
+        if poler.get("best_vein_fragment"):
+            poler_html += (
+                '<details class="collapsible"><summary>POLER fragment</summary>'
+                '<pre style="font-size:11px;">{frag}</pre></details>'
+            ).format(frag=html.escape(str(poler["best_vein_fragment"])[:300]))
+
+    return (
+        '<div class="fragment" style="border-left:3px solid {sev_color};">'
+        '<div class="fragment-header">'
+        '<div><span class="fragment-num">#{n}</span> '
+        '<span class="fragment-kw" style="background:{sev_bg};color:{sev_color};">{sev}</span> '
+        '<span style="color:var(--muted);font-size:12px;">{rule}</span></div>'
+        '<div class="fragment-meta">line {line} · col {col} · {node}</div>'
+        '</div>'
+        '<div style="color:var(--text);font-size:13px;margin-bottom:6px;">{why}</div>'
+        '<div class="fragment-text">{snippet}</div>'
+        '<div style="margin-top:8px;"><strong style="color:var(--accent);font-size:12px;">FIX:</strong>'
+        '<pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:12px;margin:4px 0;white-space:pre-wrap;">{fix}</pre></div>'
+        '<div style="margin-top:4px;"><strong style="color:var(--muted);font-size:11px;">Manual review:</strong> '
+        '<span style="color:var(--muted);font-size:12px;">{manual}</span></div>'
+        '<div class="metrics">{poler}</div>'
+        '</div>'
+    ).format(
+        n=index + 1, sev_color=sev_color, sev_bg=sev_bg, sev=html.escape(sev),
+        rule=rule_id, line=line, col=col, node=node_type,
+        why=why, snippet=snippet, fix=fix, manual=manual, poler=poler_html,
+    )
+
+
+def _render_smart_result(report: dict) -> str:
+    """Render the full smart-analysis report."""
+    if not report:
+        return '<div class="error-box">⚠ Пустой отчёт smart-анализа</div>'
+
+    if not report.get("syntax_ok"):
+        err = report.get("syntax_error") or {}
+        return (
+            '<div class="result"><h2>Smart-анализ</h2>'
+            '<div class="error-box">⚠ Синтаксическая ошибка — AST не разобран.'
+            ' line {line}, col {col}: {msg}<br><br>Текст строки:<br>{text}</div>'
+            '<div class="summary-line" style="color:var(--muted);font-size:13px;">'
+            'Сначала исправьте синтаксис, потом smart-анализ сможет найти нарушения.</div>'
+            '</div>'
+        ).format(
+            line=err.get("line", "?"),
+            col=err.get("col", "?"),
+            msg=html.escape(str(err.get("message", ""))),
+            text=html.escape(str(err.get("text", ""))),
+        )
+
+    summary = report.get("summary", {}) or {}
+    violations = report.get("violations", []) or []
+
+    # Sort: CRITICAL → HIGH → MEDIUM → LOW, then by line
+    sev_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+    violations = sorted(violations, key=lambda v: (
+        sev_order.get(v.get("severity", "LOW"), 9),
+        v.get("line", 0),
+    ))
+
+    summary_html = _render_smart_summary(summary)
+
+    if not violations:
+        fragments_html = (
+            '<div class="empty" style="background:var(--panel);padding:30px;border-radius:8px;">'
+            '✅ Нарушений не найдено. Код выглядит чисто по известным правилам.</div>'
+        )
+    else:
+        # Show top 30 (was 10 — smart analysis usually has many findings)
+        fragments_html = "".join(
+            _render_smart_violation(i, v) for i, v in enumerate(violations[:30])
+        )
+        if len(violations) > 30:
+            fragments_html += (
+                '<div class="empty" style="background:var(--panel);padding:14px;border-radius:8px;">'
+                '… и ещё {n} нарушений ниже. См. JSON / консоль для полного списка.</div>'
+            ).format(n=len(violations) - 30)
+
+    # By-rule table
+    by_rule = summary.get("by_rule", {}) or {}
+    rule_rows = "".join(
+        '<tr><td><strong>{rid}</strong></td><td>{cnt}</td></tr>'.format(
+            rid=html.escape(rid), cnt=cnt
+        )
+        for rid, cnt in sorted(by_rule.items())
+    )
+    table_html = ""
+    if rule_rows:
+        table_html = (
+            '<details class="table-wrap"><summary>📋 Все правила ({n})</summary>'
+            '<table><tr><th>правило</th><th>нарушений</th></tr>{rows}</table>'
+            '</details>'
+        ).format(n=len(by_rule), rows=rule_rows)
+
+    return (
+        '<div class="result">'
+        '<h2>⚡ Smart-анализ Python</h2>'
+        '{summary}'
+        '<h3>🔍 Топ-{n} нарушений (отсортировано по критичности)</h3>'
+        '{fragments}'
+        '{table}'
+        '</div>'
+    ).format(
+        summary=summary_html,
+        n=min(30, len(violations)),
+        fragments=fragments_html,
+        table=table_html,
+    )
+
+
+# ============================================================================
 #  HTTP server
 # ============================================================================
 
@@ -484,7 +681,7 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
             self.wfile.write(encoded)
 
         def do_GET(self) -> None:
-            self._send(_build_page(query="", source="", text="", result=""))
+            self._send(_build_page(query="", source="", text="", result="", mode="analyze"))
 
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length", "0"))
@@ -492,12 +689,24 @@ def make_handler() -> type[BaseHTTPRequestHandler]:
             query = values.get("query", [""])[0]
             source = values.get("source", [""])[0]
             text = values.get("text", [""])[0]
-            analysis = PolerEdit(text=text, query=query, source=source or "poler-edit-ui").analyze()
+            # mode может прийти дважды (radio + button value) — берём smart если есть
+            modes = values.get("mode", [])
+            mode = "smart" if "smart" in modes else "analyze"
+
+            if mode == "smart" and text:
+                # Smart-анализ: AST + правила + POLER (без LLM)
+                report = smart_analyze_code(text, filename=source or "smart-input.py")
+                result_html = _render_smart_result(report)
+            else:
+                analysis = PolerEdit(text=text, query=query, source=source or "poler-edit-ui").analyze()
+                result_html = _render_result(analysis, full_text=text)
+
             self._send(_build_page(
                 query=html.escape(query),
                 source=html.escape(source),
                 text=html.escape(text),
-                result=_render_result(analysis, full_text=text),
+                result=result_html,
+                mode=mode,
             ))
 
         def log_message(self, format: str, *args: object) -> None:
