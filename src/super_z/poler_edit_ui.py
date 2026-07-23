@@ -18,39 +18,61 @@ _PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PolerEdit</title>
 <style>
-:root {{ color-scheme: dark; --bg:#101418; --panel:#182027; --line:#31404a; --text:#e8eef0; --muted:#93a3aa; --accent:#62d5b0; }}
+:root {{ color-scheme: dark; --bg:#101418; --panel:#182027; --line:#31404a; --text:#e8eef0; --muted:#93a3aa; --accent:#62d5b0; --accent2:#7ab8ff; --warn:#f4b8bf; }}
 * {{ box-sizing:border-box; }} body {{ margin:0; background:linear-gradient(135deg,#101418,#1d2930); color:var(--text); font:16px/1.5 system-ui,sans-serif; }}
 main {{ max-width:1100px; margin:0 auto; padding:36px 20px 60px; }} h1 {{ margin:0 0 8px; font-size:38px; }} p {{ color:var(--muted); }}
 .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:24px; }} section {{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; }}
 label {{ display:block; color:var(--muted); margin:0 0 8px; }} textarea {{ width:100%; min-height:220px; resize:vertical; background:#0d1216; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:12px; font:inherit; }}
 input {{ width:100%; background:#0d1216; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:11px; font:inherit; }} button {{ margin-top:14px; background:var(--accent); color:#08251d; border:0; border-radius:6px; padding:11px 18px; font-weight:700; cursor:pointer; }}
-.result {{ margin-top:16px; }} .summary {{ color:var(--accent); white-space:pre-wrap; }} .fragment {{ padding:12px 0; border-top:1px solid var(--line); }} .meta {{ color:var(--muted); font-size:13px; }}
-.vein-text {{ white-space:pre-wrap; }}
-.vein-tags {{ margin-top:4px; }}
+.result {{ margin-top:16px; }} .summary {{ color:var(--accent); white-space:pre-wrap; padding:8px 0; }} .fragment {{ padding:14px 0; border-top:1px solid var(--line); }} .meta {{ color:var(--muted); font-size:13px; margin-top:4px; }}
+.vein-text {{ white-space:pre-wrap; padding:6px 10px; background:#0d1216; border-left:3px solid var(--accent); border-radius:0 4px 4px 0; }}
+.vein-tags {{ margin-top:6px; }}
 .vein-tag {{ display:inline-block; background:#0d1216; border:1px solid var(--line); border-radius:4px; padding:2px 8px; margin-right:6px; font-size:12px; color:var(--muted); }}
-.vein-json {{ margin-top:8px; background:#0d1216; padding:8px; border-radius:4px; font-size:12px; max-height:200px; overflow:auto; }}
-.stats-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin:8px 0; }}
-.stat {{ background:#0d1216; padding:8px; border-radius:4px; }}
-.stat-label {{ color:var(--muted); font-size:11px; text-transform:uppercase; }}
-.stat-value {{ color:var(--accent); font-size:18px; font-weight:bold; }}
-.error-box {{ background:#2d1518; border:1px solid #6b2c33; color:#f4b8bf; padding:12px; border-radius:6px; margin-top:12px; }}
-@media (max-width:760px) {{ .grid {{ grid-template-columns:1fr; }} h1 {{ font-size:30px; }} }}
+.vein-tag.kw {{ color:var(--accent2); border-color:#2a4d6b; }}
+.vein-tag.domain {{ color:var(--accent); border-color:#2a6b56; }}
+.vein-json {{ margin-top:8px; background:#0d1216; padding:8px; border-radius:4px; font-size:12px; max-height:240px; overflow:auto; }}
+.stats-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin:12px 0; }}
+.stat {{ background:#0d1216; padding:8px 12px; border-radius:4px; border:1px solid var(--line); }}
+.stat-label {{ color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }}
+.stat-value {{ color:var(--accent); font-size:18px; font-weight:bold; margin-top:2px; }}
+.score-row {{ display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:6px; }}
+.score-cell {{ background:#0d1216; padding:4px 8px; border-radius:4px; font-size:12px; }}
+.score-label {{ color:var(--muted); font-size:10px; text-transform:uppercase; }}
+.score-num {{ color:var(--accent2); font-weight:bold; }}
+.error-box {{ background:#2d1518; border:1px solid #6b2c33; color:var(--warn); padding:12px; border-radius:6px; margin-top:12px; white-space:pre-wrap; }}
+.positions {{ color:var(--muted); font-size:11px; margin-top:2px; }}
+@media (max-width:760px) {{ .grid {{ grid-template-columns:1fr; }} h1 {{ font-size:30px; }} .score-row {{ grid-template-columns:repeat(2,1fr); }} }}
 </style>
 </head>
 <body><main>
 <h1>PolerEdit</h1><p>Локальний аналіз тексту через epsilon та resonance (POLER v3.0).</p>
 <form method="post"><div class="grid">
-<section><label for="query">Запит</label><input id="query" name="query" value="{query}" placeholder="Наприклад: знайди головний ризик"></section>
+<section><label for="query">Запит (ключове слово)</label><input id="query" name="query" value="{query}" placeholder="Наприклад: ИИ, ризик, алгоритм"></section>
 <section><label for="source">Файл / мова (необов'язково)</label><input id="source" name="source" value="{source}" placeholder="Наприклад: example.py або article.txt"><label for="text">Текст</label><textarea id="text" name="text" placeholder="Вставте текст для аналізу...">{text}</textarea></section>
 </div><button type="submit">Проаналізувати</button></form>
 {result}
 </main></body></html>"""
 
 
+def _fmt(value, default: str = "—") -> str:
+    """Format a numeric score; return default for None/missing/invalid."""
+    if value is None:
+        return default
+    try:
+        f = float(value)
+        if abs(f) >= 1000:
+            return "{:.1f}".format(f)
+        return "{:.3f}".format(f)
+    except (TypeError, ValueError):
+        return str(value) if value != "" else default
+
+
 def _vein_text(vein: dict) -> str:
-    """Extract display text from a vein using the same fallback chain as poler_edit.py."""
+    """Extract display text from a POLER v3.0 vein using the real field names."""
     return (
-        vein.get("cleaned_text")
+        vein.get("top_fragment")
+        or vein.get("fragment")
+        or vein.get("cleaned_text")
         or vein.get("raw_text")
         or vein.get("text")
         or vein.get("snippet")
@@ -58,82 +80,130 @@ def _vein_text(vein: dict) -> str:
     )
 
 
-def _format_score(value, default: str = "—") -> str:
-    """Format a numeric score, returning default for None/missing."""
-    if value is None:
-        return default
-    try:
-        return "{:.3f}".format(float(value))
-    except (TypeError, ValueError):
-        return str(value)
-
-
 def _render_vein(index: int, vein: dict) -> str:
-    """Render a single vein as HTML — fully defensive against missing keys."""
+    """Render one vein — fully defensive against missing keys."""
     text = _vein_text(vein)
-    resonance = _format_score(vein.get("resonance"))
-    epsilon = _format_score(vein.get("epsilon"))
-    weight = _format_score(vein.get("weight"))
-    score = _format_score(vein.get("score"))
+    keyword = vein.get("keyword") or ""
+    domain = vein.get("domain") or ""
+    epsilon_peak = _fmt(vein.get("epsilon_peak"))
+    resonance_int = _fmt(vein.get("resonance_integral"))
+    confidence = _fmt(vein.get("confidence"))
+    positions = vein.get("positions") or []
 
+    # Tags
     tags = []
-    if vein.get("type"):
-        tags.append('<span class="vein-tag">type: {}</span>'.format(html.escape(str(vein["type"]))))
-    if vein.get("theme"):
-        tags.append('<span class="vein-tag">theme: {}</span>'.format(html.escape(str(vein["theme"]))))
-    if vein.get("keywords"):
-        kw = vein["keywords"]
-        if isinstance(kw, list):
-            kw_str = ", ".join(str(k) for k in kw[:5])
-        else:
-            kw_str = str(kw)
-        tags.append('<span class="vein-tag">kw: {}</span>'.format(html.escape(kw_str[:120])))
+    if keyword:
+        tags.append('<span class="vein-tag kw">keyword: {}</span>'.format(html.escape(str(keyword))))
+    if domain:
+        tags.append('<span class="vein-tag domain">domain: {}</span>'.format(html.escape(str(domain))))
     tags_html = '<div class="vein-tags">{}</div>'.format("".join(tags)) if tags else ""
 
-    # Show extra vein fields as a collapsible JSON for debugging/transparency
-    extra_keys = {k: v for k, v in vein.items()
-                  if k not in {"cleaned_text", "raw_text", "text", "snippet",
-                               "resonance", "epsilon", "weight", "score",
-                               "type", "theme", "keywords"}}
+    # Score row — 4 main metrics
+    score_row = (
+        '<div class="score-row">'
+        '<div class="score-cell"><div class="score-label">epsilon peak</div><div class="score-num">{ep}</div></div>'
+        '<div class="score-cell"><div class="score-label">resonance ∫</div><div class="score-num">{ri}</div></div>'
+        '<div class="score-cell"><div class="score-label">confidence</div><div class="score-num">{cf}</div></div>'
+        '<div class="score-cell"><div class="score-label">positions</div><div class="score-num">{pn}</div></div>'
+        '</div>'
+    ).format(ep=epsilon_peak, ri=resonance_int, cf=confidence, pn=len(positions) if positions else 0)
+
+    # Positions (char offsets in source text)
+    positions_html = ""
+    if positions:
+        pos_str = ", ".join(str(p) for p in positions[:10])
+        if len(positions) > 10:
+            pos_str += " +{} more".format(len(positions) - 10)
+        positions_html = '<div class="positions">positions: [{}]</div>'.format(html.escape(pos_str))
+
+    # Extra fields (debug, collapsible)
+    known_keys = {"top_fragment", "fragment", "cleaned_text", "raw_text", "text", "snippet",
+                  "keyword", "domain", "epsilon_peak", "resonance_integral", "confidence",
+                  "positions", "source_file"}
+    extra = {k: v for k, v in vein.items() if k not in known_keys}
     extra_html = ""
-    if extra_keys:
-        extra_json = json.dumps(extra_keys, ensure_ascii=False, default=str, indent=2)
+    if extra:
+        extra_json = json.dumps(extra, ensure_ascii=False, default=str, indent=2)
         extra_html = '<details class="vein-json"><summary>extra fields ({})</summary><pre>{}</pre></details>'.format(
-            len(extra_keys), html.escape(extra_json)
+            len(extra), html.escape(extra_json)
         )
+
+    text_html = html.escape(text[:1000]) if text else '<em style="color:var(--muted)">(no fragment text)</em>'
 
     return (
         '<div class="fragment">'
-        '<div class="vein-text">{}</div>'
-        '<div class="meta">resonance: {} · epsilon: {} · weight: {} · score: {}</div>'
-        '{}{}'
+        '<div class="vein-text">#{n} · {txt}</div>'
+        '{tags}'
+        '{scores}'
+        '{positions}'
+        '{extra}'
         '</div>'
-    ).format(
-        html.escape(text[:600]),
-        resonance, epsilon, weight, score,
-        tags_html, extra_html,
-    )
+    ).format(n=index + 1, txt=text_html, tags=tags_html, scores=score_row, positions=positions_html, extra=extra_html)
 
 
 def _render_stats(analysis: dict) -> str:
-    """Render POLER v3.0 stats block if present."""
+    """Render POLER v3.0 stats block."""
     poler_v3 = analysis.get("poler_v3") or {}
-    stats = poler_v3.get("stats") if isinstance(poler_v3, dict) else None
+    if not isinstance(poler_v3, dict):
+        return ""
+    stats = poler_v3.get("stats") or {}
     if not isinstance(stats, dict) or not stats:
         return ""
 
+    # Map stats keys to labels
+    label_map = {
+        "total_keywords": "keywords",
+        "total_veins": "veins",
+        "total_positions": "positions",
+        "density": "density",
+        "avg_resonance": "avg resonance",
+        "avg_epsilon": "avg epsilon",
+        "selected": "selected",
+    }
     cells = []
-    for key in ("total_veins", "selected", "density", "avg_resonance", "avg_epsilon"):
+    for key, label in label_map.items():
         if key in stats:
             cells.append(
                 '<div class="stat"><div class="stat-label">{}</div><div class="stat-value">{}</div></div>'.format(
-                    html.escape(key.replace("_", " ")),
-                    html.escape(str(stats[key])),
+                    html.escape(label), html.escape(str(stats[key]))
                 )
             )
     if not cells:
         return ""
     return '<div class="stats-grid">{}</div>'.format("".join(cells))
+
+
+def _render_navigation(analysis: dict) -> str:
+    """Render navigation map (keyword → positions/counts)."""
+    poler_v3 = analysis.get("poler_v3") or {}
+    if not isinstance(poler_v3, dict):
+        return ""
+    nav = poler_v3.get("navigation_map") or {}
+    if not nav:
+        return ""
+    rows = []
+    for kw, info in nav.items():
+        if not isinstance(info, dict):
+            continue
+        rows.append(
+            '<tr><td><strong>{kw}</strong></td><td>{cnt}</td><td>{peak}</td><td>{avg}</td><td>{res}</td><td>{dom}</td></tr>'.format(
+                kw=html.escape(str(kw)),
+                cnt=info.get("count", "—"),
+                peak=_fmt(info.get("peak_epsilon")),
+                avg=_fmt(info.get("avg_epsilon")),
+                res=_fmt(info.get("total_resonance")),
+                dom=html.escape(str(info.get("domain", "—"))),
+            )
+        )
+    if not rows:
+        return ""
+    return (
+        '<div style="margin:12px 0; overflow-x:auto;">'
+        '<table border=1 cellpadding=6 style="border-collapse:collapse; width:100%; font-size:13px;">'
+        '<tr style="color:var(--muted);"><th>keyword</th><th>count</th><th>peak ε</th><th>avg ε</th><th>resonance ∫</th><th>domain</th></tr>'
+        '{rows}'
+        '</table></div>'
+    ).format(rows="".join(rows))
 
 
 def _render_diagnostics(analysis: dict) -> str:
@@ -143,7 +213,6 @@ def _render_diagnostics(analysis: dict) -> str:
         return ""
     if not diagnostics:
         return ""
-
     parts = [
         '<p class="meta">Режим: {} · Інтерпретатор: {} · Статус: {}</p>'.format(
             html.escape(analysis.get("mode", "unknown")),
@@ -153,14 +222,14 @@ def _render_diagnostics(analysis: dict) -> str:
     ]
     if diagnostics.get("message"):
         parts.append(
-            '<div class="fragment"><strong>Діагностика</strong><pre>{}</pre></div>'.format(
+            '<div class="fragment"><strong>Діагностика</strong><pre style="white-space:pre-wrap; padding:8px; background:#0d1216; border-radius:4px;">{}</pre></div>'.format(
                 html.escape(str(diagnostics["message"]))
             )
         )
     if diagnostics.get("issues"):
         for issue in diagnostics["issues"]:
             parts.append(
-                '<div class="fragment"><strong>Issue</strong><pre>{}</pre></div>'.format(
+                '<div class="fragment"><strong>Issue</strong><pre style="white-space:pre-wrap; padding:8px; background:#0d1216; border-radius:4px;">{}</pre></div>'.format(
                     html.escape(json.dumps(issue, ensure_ascii=False, default=str, indent=2))
                 )
             )
@@ -172,7 +241,6 @@ def _render_result(analysis: dict) -> str:
     if not analysis:
         return ""
 
-    # POLER v3.0 error path
     if analysis.get("error"):
         return '<section class="result"><h2>Результат</h2><div class="error-box">{}</div></section>'.format(
             html.escape(str(analysis["error"]))
@@ -182,17 +250,21 @@ def _render_result(analysis: dict) -> str:
     fragments = "".join(_render_vein(i, v) for i, v in enumerate(selected))
     diagnostics_html = _render_diagnostics(analysis)
     stats_html = _render_stats(analysis)
+    nav_html = _render_navigation(analysis)
     summary = analysis.get("summary") or ""
+    mode = analysis.get("mode", "text")
 
     return (
         '<section class="result">'
-        '<h2>Результат (POLER v3.0)</h2>'
-        '{}'
-        '{}'
-        '<div class="summary">{}</div>'
-        '{}'
+        '<h2>Результат (POLER v3.0 · mode: {mode})</h2>'
+        '{diag}'
+        '{stats}'
+        '{nav}'
+        '<div class="summary">{summary}</div>'
+        '{fragments}'
         '</section>'
-    ).format(diagnostics_html, stats_html, html.escape(summary), fragments)
+    ).format(mode=html.escape(mode), diag=diagnostics_html, stats=stats_html, nav=nav_html,
+             summary=html.escape(summary), fragments=fragments)
 
 
 def make_handler() -> type[BaseHTTPRequestHandler]:
