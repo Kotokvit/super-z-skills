@@ -2,16 +2,24 @@
 poler_smart_interpreter.py — Smart Python interpreter.
 
 Architecture (user's vision):
-    [Python ast.walk] → finds dangerous patterns deterministically
-           ↓ positions
-    [POLER v3.0] → provides semantic context (fragment, resonance)
-           ↓
-    [Rule-based fixer] → deterministic patches (no LLM!)
-           ↓
-    Report → AI/human architect accepts/rejects
+    [Python ast.walk] -> finds dangerous patterns deterministically
+           | positions
+    [POLER v3.0] -> provides semantic context (fragment, resonance)
+           |
+    [Rule-based fixer] -> deterministic patches (NO LLM!)
+           |
+    Report -> AI/human architect accepts/rejects
 
-This module proves: Python interpreter CAN suggest fixes by itself,
-using POLER as a tool — no LLM needed for known patterns.
+Rule system (NEW):
+    Rules are NOT hardcoded in this file. They live in:
+        smart_rules/schema.yaml
+    Rules are COMPILED at runtime by:
+        smart_rules/generator.py + smart_rules/ast_adapter.py
+    Rules are CACHED by:
+        smart_rules/cache.py
+    When the interpreter or its version changes, the cache invalidates
+    automatically and rules re-compile from the schema. The schema file
+    stays stable across interpreter versions.
 
 Public API:
     from super_z.poler_smart_interpreter import SmartInterpreter
@@ -25,146 +33,18 @@ import ast
 from typing import Any
 
 from .poler_edit import PolerEdit
+from .smart_rules import load_rules, AstAdapter, CompiledRule
 
 
-# ============================================================================
-# DETERMINISTIC RULES — pattern → fix (no LLM, no hardcoded themes)
-# ============================================================================
-
-RULES: list[dict] = [
-    {
-        "id": "R001_eval",
-        "severity": "CRITICAL",
-        "why": "eval() executes arbitrary code. If input comes from user, it's RCE.",
-        "fix_template": "ast.literal_eval({{arg}})  # safe — only literals",
-        "manual_review": "If arg is dynamic user input, REWRITE the logic without eval.",
-        "poler_query": "eval",
-    },
-    {
-        "id": "R002_exec",
-        "severity": "CRITICAL",
-        "why": "exec() runs arbitrary code at runtime. Almost never needed.",
-        "fix_template": "# REMOVE exec — inline the statement instead",
-        "manual_review": "If you need dynamic code, refactor to functions/data.",
-        "poler_query": "exec",
-    },
-    {
-        "id": "R003_subprocess_shell_true",
-        "severity": "CRITICAL",
-        "why": "shell=True + string concatenation = command injection.",
-        "fix_template": "subprocess.run({{args_list}}, shell=False)  # pass args as list",
-        "manual_review": "Pass args as a list, never concatenate strings.",
-        "poler_query": "subprocess",
-    },
-    {
-        "id": "R004_pickle_loads",
-        "severity": "HIGH",
-        "why": "pickle.loads on untrusted data = arbitrary code execution.",
-        "fix_template": "json.loads({{arg}}.decode('utf-8') if isinstance({{arg}}, bytes) else {{arg}})  # safer",
-        "manual_review": "If you really need pickle, sign the data with HMAC first.",
-        "poler_query": "pickle",
-    },
-    {
-        "id": "R005_pickle_load",
-        "severity": "HIGH",
-        "why": "pickle.load on untrusted file = arbitrary code execution.",
-        "fix_template": "json.load({{arg}})  # safer",
-        "manual_review": "Same as R004.",
-        "poler_query": "pickle",
-    },
-    {
-        "id": "R006_bare_except",
-        "severity": "MEDIUM",
-        "why": "Bare except catches KeyboardInterrupt, SystemExit — debugging hell.",
-        "fix_template": "except Exception:  # or more specific",
-        "manual_review": "Catch the specific exception you expect.",
-        "poler_query": "except",
-    },
-    {
-        "id": "R007_pass_in_except",
-        "severity": "MEDIUM",
-        "why": "Silent failure — bugs hide forever.",
-        "fix_template": "except Exception as e:\n    logger.exception('...')  # at least log",
-        "manual_review": "Either handle or log, never silently pass.",
-        "poler_query": "except",
-    },
-    {
-        "id": "R008_global_mutation",
-        "severity": "MEDIUM",
-        "why": "global + mutation = invisible state, untestable code.",
-        "fix_template": "# Pass state as argument, return new state",
-        "manual_review": "Refactor to pure functions.",
-        "poler_query": "global",
-    },
-    {
-        "id": "R009_deep_nesting",
-        "severity": "LOW",
-        "why": "Deep nesting (>= 5 levels) = unreadable, untestable.",
-        "fix_template": "# Extract inner block to a function, or use early return",
-        "manual_review": "Use guard clauses: if not X: return",
-        "poler_query": None,
-    },
-    {
-        "id": "R010_sql_string_concat",
-        "severity": "CRITICAL",
-        "why": "String-concatenated SQL = injection by definition.",
-        "fix_template": "cursor.execute('SQL WITH ? placeholders', (a, b, c))",
-        "manual_review": "ALWAYS use parameterized queries.",
-        "poler_query": "INSERT",
-    },
-    {
-        "id": "R011_hardcoded_password",
-        "severity": "HIGH",
-        "why": "Hardcoded password in source — leaks via git/VCS.",
-        "fix_template": "os.environ['PASSWORD']  # from env, never in code",
-        "manual_review": "Move secrets to env vars or secret manager.",
-        "poler_query": "password",
-    },
-]
-
-_RULES_BY_ID = {r["id"]: r for r in RULES}
-
-
-# ============================================================================
-# Helpers
-# ============================================================================
-
-def _is_call_to(node: ast.AST, func_name: str) -> bool:
-    """True if node is Call() to a bare name like `eval(...)`, `exec(...)`."""
-    if not isinstance(node, ast.Call):
-        return False
-    f = node.func
-    if isinstance(f, ast.Name):
-        return f.id == func_name
-    if isinstance(f, ast.Attribute):
-        return f.attr == func_name
-    return False
-
-
-def _has_kwarg(call: ast.Call, arg_name: str, value: Any = None) -> bool:
-    """True if call has keyword arg `arg_name` (with optional value match)."""
-    for kw in call.keywords:
-        if kw.arg == arg_name:
-            if value is None:
-                return True
-            if isinstance(kw.value, ast.Constant):
-                return kw.value.value == value
-    return False
-
-
-def _extract_string(node: ast.AST) -> str | None:
-    """Try to extract a string literal from a node."""
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
-    return None
-
-
-# ============================================================================
+# =============================================================================
 # SmartInterpreter — the "smart" Python interpreter
-# ============================================================================
+# =============================================================================
 
 class SmartInterpreter:
-    """The 'smart' Python interpreter — uses AST + rules + POLER.
+    """The 'smart' Python interpreter — uses AST + compiled rules + POLER.
+
+    Rules are loaded via smart_rules.load_rules() on construction. If the
+    interpreter or schema has changed since last run, rules re-compile.
 
     Usage:
         interp = SmartInterpreter(source, filename="example.py")
@@ -176,135 +56,114 @@ class SmartInterpreter:
             print(f"  fix:    {v['fix']}")
     """
 
-    def __init__(self, source: str, filename: str = "<code>") -> None:
+    def __init__(self, source: str, filename: str = "<code>",
+                 force_recompile_rules: bool = False) -> None:
         self.source = source
         self.filename = filename
-        # Parse once — raise if invalid syntax (caller should handle)
-        self.tree = ast.parse(source, filename=filename)
+
+        # Adapter for current interpreter (auto-detects node types)
+        self.adapter = AstAdapter()
+
+        # Load compiled rules (cache invalidates on version/schema change)
+        self.rules, self.rule_warnings, self.rule_meta = load_rules(
+            force_recompile=force_recompile_rules
+        )
+
+        # Index rules by id for fix lookup
+        self._rules_by_id: dict[str, CompiledRule] = {r.id: r for r in self.rules}
+
+        # Custom rules (deep_nesting etc.) — handled with special traversal
+        self._custom_rules: list[CompiledRule] = [r for r in self.rules if r.is_custom]
+
+        # Parse source — raises SyntaxError if invalid (caller should handle)
+        self.tree = self.adapter.parse(source, filename=filename)
         self.lines = source.splitlines()
+
+    # ------------------------------------------------------------------ #
+    # Finding violations
+    # ------------------------------------------------------------------ #
 
     def find_violations(self) -> list[dict]:
         """Walk AST and find all rule violations."""
         violations = []
-        for node in ast.walk(self.tree):
-            violations.extend(self._check_node(node))
-        # Also check deep nesting (needs custom walk with depth tracking)
-        violations.extend(self._check_deep_nesting(self.tree, depth=0, max_depth=5))
+
+        # Standard rules — visit each node, check each rule
+        for node in self.adapter.walk(self.tree):
+            for rule in self.rules:
+                if rule.is_custom:
+                    continue  # handled below
+                captures = rule.check(node, self.adapter)
+                if captures is not None:
+                    violations.append(self._make_violation(node, rule, captures))
+
+        # Custom rules — special traversal
+        for rule in self._custom_rules:
+            violations.extend(self._run_custom(rule))
+
         return violations
 
-    def _check_deep_nesting(self, node: ast.AST, depth: int, max_depth: int) -> list[dict]:
+    def _run_custom(self, rule: CompiledRule) -> list[dict]:
+        """Dispatch a custom rule by name."""
+        name = rule.node_type  # placeholder — actual name lives in schema
+        # We stored custom name on the rule via the check closure
+        # For deep_nesting specifically:
+        if rule.id == "R009":  # deep_nesting
+            return self._check_deep_nesting(self.tree, depth=0, max_depth=5, rule=rule)
+        return []
+
+    def _check_deep_nesting(self, node: ast.AST, depth: int, max_depth: int,
+                            rule: CompiledRule) -> list[dict]:
         """Recursively check for nested if/for/while blocks deeper than max_depth."""
         out = []
         new_depth = depth
         if isinstance(node, (ast.If, ast.For, ast.While, ast.With, ast.Try)):
             new_depth = depth + 1
             if new_depth > max_depth:
-                out.append(self._make_violation(node, "R009_deep_nesting", {
-                    "depth": new_depth,
-                }))
-        for child in ast.iter_child_nodes(node):
-            out.extend(self._check_deep_nesting(child, new_depth, max_depth))
+                out.append(self._make_violation(node, rule, {"depth": new_depth}))
+        for child in self.adapter.iter_children(node):
+            out.extend(self._check_deep_nesting(child, new_depth, max_depth, rule))
         return out
 
-    def _check_node(self, node: ast.AST) -> list[dict]:
-        """Check one AST node against all rules."""
-        out = []
+    # ------------------------------------------------------------------ #
+    # Violation record construction
+    # ------------------------------------------------------------------ #
 
-        # R001: eval()
-        if _is_call_to(node, "eval"):
-            out.append(self._make_violation(node, "R001_eval", {
-                "arg": ast.unparse(node.args[0]) if node.args else "?",
-            }))
-
-        # R002: exec()
-        if _is_call_to(node, "exec"):
-            out.append(self._make_violation(node, "R002_exec", {
-                "arg": ast.unparse(node.args[0]) if node.args else "?",
-            }))
-
-        # R003: subprocess.run(..., shell=True)
-        if (isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "subprocess"
-                and node.func.attr in ("run", "call", "Popen", "check_call", "check_output")
-                and _has_kwarg(node, "shell", True)):
-            out.append(self._make_violation(node, "R003_subprocess_shell_true", {
-                "args_list": ast.unparse(node.args[0]) if node.args else "?",
-            }))
-
-        # R004/R005: pickle.loads()/pickle.load()
-        if (isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "pickle"
-                and node.func.attr in ("loads", "load")):
-            rule_id = "R004_pickle_loads" if node.func.attr == "loads" else "R005_pickle_load"
-            out.append(self._make_violation(node, rule_id, {
-                "arg": ast.unparse(node.args[0]) if node.args else "?",
-            }))
-
-        # R006/R007: bare except / pass-in-except
-        if isinstance(node, ast.ExceptHandler):
-            if node.type is None:
-                out.append(self._make_violation(node, "R006_bare_except", {}))
-            if (len(node.body) == 1 and isinstance(node.body[0], ast.Pass)):
-                out.append(self._make_violation(node, "R007_pass_in_except", {}))
-
-        # R008: global mutation
-        if isinstance(node, ast.Global) and isinstance(getattr(node, "names", None), list):
-            out.append(self._make_violation(node, "R008_global_mutation", {
-                "names": ", ".join(node.names),
-            }))
-
-        # R010: SQL string concat
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-            left_str = _extract_string(node.left)
-            right_str = _extract_string(node.right)
-            combined = (left_str or "") + (right_str or "")
-            if any(kw in combined.upper() for kw in ("INSERT ", "SELECT ", "UPDATE ", "DELETE ", "DROP ", "VALUES ")):
-                out.append(self._make_violation(node, "R010_sql_string_concat", {
-                    "snippet": combined[:80],
-                }))
-
-        # R011: hardcoded password
-        if (isinstance(node, ast.Assign)
-                and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id.lower() in ("password", "pwd", "passwd", "secret", "api_key", "token")
-                and isinstance(node.value, ast.Constant)
-                and isinstance(node.value.value, str)
-                and node.value.value  # not empty
-                and not node.value.value.startswith("$")  # not env-var ref
-                and not node.value.value.startswith("os.environ")):
-            out.append(self._make_violation(node, "R011_hardcoded_password", {
-                "var": node.targets[0].id,
-            }))
-
-        return out
-
-    def _make_violation(self, node: ast.AST, rule_id: str, ctx: dict) -> dict:
-        """Create a violation record with line/col + source snippet."""
-        rule = _RULES_BY_ID[rule_id]
+    def _make_violation(self, node: ast.AST, rule: CompiledRule, captures: dict) -> dict:
+        """Create a violation record with line/col + source snippet + rendered fix."""
         lineno = getattr(node, "lineno", 1)
         col = getattr(node, "col_offset", 0)
         source_line = self.lines[lineno - 1] if 0 < lineno <= len(self.lines) else ""
-        # Format the fix template with context variables
-        fix = rule["fix_template"]
-        for k, v in ctx.items():
-            fix = fix.replace("{{" + k + "}}", str(v))
+
+        # Render fix template with captures (unparse complex captures)
+        fix = rule.fix_template
+        for k, v in captures.items():
+            if v is None:
+                rendered = "?"
+            elif isinstance(v, str):
+                rendered = v
+            else:
+                # AST node — unparse back to source
+                rendered = self.adapter.unparse(v) if isinstance(v, ast.AST) else str(v)
+            fix = fix.replace("{{" + k + "}}", rendered)
+
         return {
-            "rule_id": rule_id,
-            "severity": rule["severity"],
-            "why": rule["why"],
+            "rule_id": rule.id,
+            "rule_name": rule.name,
+            "severity": rule.severity,
+            "category": rule.category,
+            "why": rule.why,
             "fix": fix,
-            "manual_review": rule["manual_review"],
+            "manual_review": rule.manual_review,
             "line": lineno,
             "col": col,
             "source_snippet": source_line.strip(),
             "ast_node_type": type(node).__name__,
-            "context": ctx,
+            "context": captures,
         }
+
+    # ------------------------------------------------------------------ #
+    # POLER enrichment
+    # ------------------------------------------------------------------ #
 
     def enrich_with_poler(self, violations: list[dict]) -> list[dict]:
         """For each violation, run POLER with the rule's keyword to get positions/resonance.
@@ -314,11 +173,11 @@ class SmartInterpreter:
         """
         poler_cache: dict[str, dict] = {}
         for v in violations:
-            rule = _RULES_BY_ID.get(v["rule_id"])
-            if not rule or not rule.get("poler_query"):
+            rule = self._rules_by_id.get(v["rule_id"])
+            if not rule or not rule.poler_query:
                 v["poler"] = None
                 continue
-            q = rule["poler_query"]
+            q = rule.poler_query
             if q not in poler_cache:
                 try:
                     pe = PolerEdit(text=self.source, query=q, source=self.filename)
@@ -344,6 +203,10 @@ class SmartInterpreter:
             }
         return violations
 
+    # ------------------------------------------------------------------ #
+    # Summary
+    # ------------------------------------------------------------------ #
+
     def summary(self, violations: list[dict]) -> dict:
         """Return a summary dict of violations by severity and rule."""
         by_severity = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
@@ -360,11 +223,12 @@ class SmartInterpreter:
         }
 
 
-# ============================================================================
+# =============================================================================
 # Convenience entry point
-# ============================================================================
+# =============================================================================
 
-def analyze_code(source: str, filename: str = "<code>") -> dict:
+def analyze_code(source: str, filename: str = "<code>",
+                 force_recompile_rules: bool = False) -> dict:
     """Analyze Python source and return a complete report.
 
     Returns:
@@ -374,11 +238,13 @@ def analyze_code(source: str, filename: str = "<code>") -> dict:
             "syntax_error": {...} or None,
             "summary": {total, by_severity, by_rule},
             "violations": [{rule_id, severity, why, fix, line, source_snippet, poler, ...}],
+            "rules_meta": {cache_hit, interpreter, interpreter_version, ...},
         }
     """
     # Step 1: parse syntax
     try:
-        interp = SmartInterpreter(source, filename=filename)
+        interp = SmartInterpreter(source, filename=filename,
+                                  force_recompile_rules=force_recompile_rules)
     except SyntaxError as e:
         return {
             "file": filename,
@@ -391,6 +257,7 @@ def analyze_code(source: str, filename: str = "<code>") -> dict:
             },
             "summary": {"total": 0, "by_severity": {}, "by_rule": {}},
             "violations": [],
+            "rules_meta": None,
         }
 
     # Step 2: find violations
@@ -408,4 +275,6 @@ def analyze_code(source: str, filename: str = "<code>") -> dict:
         "syntax_error": None,
         "summary": summary,
         "violations": violations,
+        "rules_meta": interp.rule_meta,
+        "rules_warnings": interp.rule_warnings,
     }

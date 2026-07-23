@@ -1,0 +1,259 @@
+# =============================================================================
+# smart_rules/schema.yaml — Rule intents (declarative, language-agnostic)
+#
+# Rules declared here are COMPILED at runtime by generator.py against the
+# current interpreter's AST module. If the interpreter changes (e.g. Python
+# 3.11 -> 3.13, or a different language adapter is plugged in), the rules
+# re-compile automatically — schema stays stable, only the adapter changes.
+#
+# Pattern DSL:
+#   pattern:
+#     node_type: <ASTClassName>       # required — e.g. Call, ExceptHandler
+#     match:                          # optional — conditions on node fields
+#       all:                          # ALL must be true (default if only one)
+#         - path: func.value.id       # dotted navigation through AST
+#           equals: subprocess        # scalar comparison (str/int/bool/null)
+#         - path: func.attr
+#           in: [run, call, Popen]    # membership check
+#         - path: op
+#           type_is: Add              # AST class name check
+#       any:                          # ANY can be true (alternative branch)
+#         - path: func.id
+#           equals: eval
+#         - path: func.attr
+#           equals: eval
+#     captures:                       # optional — values pulled from matched node
+#       arg0: "args.0"                # numeric index into list-typed field
+#       names: "names.join"           # .join = list-of-strings join
+#     custom:                         # optional — non-AST predicate (by name)
+#       name: sql_string_concat       # generator looks up in CUSTOM_CHECKS
+#       params: {max_depth: 5}
+#
+# Path semantics:
+#   - "func.id"        -> node.func.id (None if any link missing)
+#   - "args.0"         -> node.args[0] (None if list shorter)
+#   - "keywords.shell.value" -> walk keywords, find kw.arg=='shell', return .value
+#   - "names.join"     -> ", ".join(node.names) if list-of-strings
+#
+# All paths return None when navigation fails — equals:null checks "missing".
+# =============================================================================
+
+schema_version: 1
+interpreter_target: python
+description: >
+  Smart interpreter rule intents. Compiled by generator.py against the current
+  Python ast module. To add a rule, append below — no Python code changes.
+
+rules:
+  # ===========================================================================
+  # CRITICAL — code execution / injection
+  # ===========================================================================
+  - id: R001
+    name: eval_rce
+    severity: CRITICAL
+    category: security
+    poler_query: eval
+    why: "eval() executes arbitrary code. If input comes from user, it's RCE."
+    fix_template: "ast.literal_eval({{arg0}})  # safe — only literals"
+    manual_review: "If arg is dynamic user input, REWRITE the logic without eval."
+    pattern:
+      node_type: Call
+      match:
+        any:
+          - path: func.id
+            equals: eval
+          - path: func.attr
+            equals: eval
+      captures:
+        arg0: "args.0"
+
+  - id: R002
+    name: exec_rce
+    severity: CRITICAL
+    category: security
+    poler_query: exec
+    why: "exec() runs arbitrary code at runtime. Almost never needed."
+    fix_template: "# REMOVE exec — inline the statement instead"
+    manual_review: "If you need dynamic code, refactor to functions/data."
+    pattern:
+      node_type: Call
+      match:
+        any:
+          - path: func.id
+            equals: exec
+          - path: func.attr
+            equals: exec
+      captures:
+        arg0: "args.0"
+
+  - id: R003
+    name: subprocess_shell_injection
+    severity: CRITICAL
+    category: security
+    poler_query: subprocess
+    why: "shell=True + string concatenation = command injection."
+    fix_template: "subprocess.run({{arg0}}, shell=False)  # pass args as list"
+    manual_review: "Pass args as a list, never concatenate strings."
+    pattern:
+      node_type: Call
+      match:
+        all:
+          - path: func.value.id
+            equals: subprocess
+          - path: func.attr
+            in: [run, call, Popen, check_call, check_output]
+          - path: keywords.shell.value
+            equals: true
+      captures:
+        arg0: "args.0"
+
+  - id: R004
+    name: pickle_loads
+    severity: HIGH
+    category: security
+    poler_query: pickle
+    why: "pickle.loads on untrusted data = arbitrary code execution."
+    fix_template: "json.loads({{arg0}}.decode('utf-8') if isinstance({{arg0}}, bytes) else {{arg0}})  # safer"
+    manual_review: "If you really need pickle, sign the data with HMAC first."
+    pattern:
+      node_type: Call
+      match:
+        all:
+          - path: func.value.id
+            equals: pickle
+          - path: func.attr
+            equals: loads
+      captures:
+        arg0: "args.0"
+
+  - id: R005
+    name: pickle_load
+    severity: HIGH
+    category: security
+    poler_query: pickle
+    why: "pickle.load on untrusted file = arbitrary code execution."
+    fix_template: "json.load({{arg0}})  # safer"
+    manual_review: "Same as R004."
+    pattern:
+      node_type: Call
+      match:
+        all:
+          - path: func.value.id
+            equals: pickle
+          - path: func.attr
+            equals: load
+      captures:
+        arg0: "args.0"
+
+  # ===========================================================================
+  # MEDIUM — error handling / state
+  # ===========================================================================
+  - id: R006
+    name: bare_except
+    severity: MEDIUM
+    category: correctness
+    poler_query: except
+    why: "Bare except catches KeyboardInterrupt, SystemExit — debugging hell."
+    fix_template: "except Exception:  # or more specific"
+    manual_review: "Catch the specific exception you expect."
+    pattern:
+      node_type: ExceptHandler
+      match:
+        - path: type
+          equals: null
+
+  - id: R007
+    name: pass_in_except
+    severity: MEDIUM
+    category: correctness
+    poler_query: except
+    why: "Silent failure — bugs hide forever."
+    fix_template: "except Exception as e:\n    logger.exception('...')  # at least log"
+    manual_review: "Either handle or log, never silently pass."
+    pattern:
+      node_type: ExceptHandler
+      match:
+        all:
+          - path: body.length
+            equals: 1
+          - path: body.0._class
+            type_is: Pass
+      captures:
+        {}
+
+  - id: R008
+    name: global_mutation
+    severity: MEDIUM
+    category: maintainability
+    poler_query: global
+    why: "global + mutation = invisible state, untestable code."
+    fix_template: "# Pass state as argument, return new state"
+    manual_review: "Refactor to pure functions."
+    pattern:
+      node_type: Global
+      captures:
+        names: "names.join"
+
+  # ===========================================================================
+  # LOW — readability
+  # ===========================================================================
+  - id: R009
+    name: deep_nesting
+    severity: LOW
+    category: maintainability
+    poler_query: null
+    why: "Deep nesting (>= 5 levels) = unreadable, untestable."
+    fix_template: "# Extract inner block to a function, or use early return"
+    manual_review: "Use guard clauses: if not X: return"
+    pattern:
+      node_type: Custom
+      custom:
+        name: deep_nesting
+        params: {max_depth: 5}
+
+  # ===========================================================================
+  # CRITICAL — SQL injection / credentials
+  # ===========================================================================
+  - id: R010
+    name: sql_string_concat
+    severity: CRITICAL
+    category: security
+    poler_query: INSERT
+    why: "String-concatenated SQL = injection by definition."
+    fix_template: "cursor.execute('SQL WITH ? placeholders', (a, b, c))"
+    manual_review: "ALWAYS use parameterized queries."
+    pattern:
+      node_type: BinOp
+      match:
+        all:
+          - path: op
+            type_is: Add
+      custom:
+        name: sql_string_concat_strings
+
+  - id: R011
+    name: hardcoded_password
+    severity: HIGH
+    category: security
+    poler_query: password
+    why: "Hardcoded password in source — leaks via git/VCS."
+    fix_template: "os.environ['{{var}}'.upper()]  # from env, never in code"
+    manual_review: "Move secrets to env vars or secret manager."
+    pattern:
+      node_type: Assign
+      match:
+        all:
+          - path: targets.length
+            equals: 1
+          - path: targets.0._class
+            type_is: Name
+          - path: targets.0.id.lower
+            in: [password, pwd, passwd, secret, api_key, token]
+          - path: value._class
+            type_is: Constant
+          - path: value.value._pytype
+            equals: str
+      custom:
+        name: not_env_var_reference
+      captures:
+        var: "targets.0.id"
