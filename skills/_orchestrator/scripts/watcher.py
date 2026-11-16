@@ -91,7 +91,15 @@ BLOCKED_SKILLS = {"docx", "pdf", "pptx", "xlsx", "charts",
                   "podcast-generate", "image-edit", "image-search",
                   "skill-creator", "writing-plans",
                   "stock-analysis-skill",
-                  "web-shader-extractor"}
+                  "web-shader-extractor",
+                  # AI writing / reasoning skills (block from background daemon execution)
+                  "blog-writer", "seo-content-writer", "resume-builder",
+                  "jd-resume-tailor", "interview-prep", "quiz-mastery",
+                  "dream-interpreter", "market-research-reports",
+                  "storyboard-manager", "study-buddy", "marketing-mode",
+                  "gift-evaluator", "ui-ux-pro-max", "anti-pua",
+                  "coding-agent", "content-strategy", "contentanalysis",
+                  "cheat-sheet", "finance", "design"}
 
 
 # ─────────────────────────────────────────────────────────────────────
